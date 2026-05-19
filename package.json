@@ -1,0 +1,19 @@
+{
+  "name": "codex-butler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic control plane for orchestrating Codex worker sessions.",
+  "bin": {
+    "codex-butler": "./src/cli.js"
+  },
+  "scripts": {
+    "check": "node --check src/*.js && node --check tests/*.js",
+    "test": "node --test tests/*.test.js",
+    "probe": "node src/cli.js probe",
+    "smoke": "npm run check && npm test && npm run probe"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
