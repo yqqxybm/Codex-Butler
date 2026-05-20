@@ -133,6 +133,44 @@ test("verifier and promoter gate tasks target the implementation task", async ()
   assert.equal(promoted.targetTask.state, "promoted");
 });
 
+test("service registers existing sessions and marks one as the Butler controller", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+
+  const worker = await service.registerSession({
+    threadId: "thread-existing-worker",
+    role: "worker-session",
+    label: "Existing worker"
+  });
+  const butler = await service.addButlerSession({
+    threadId: "thread-existing-butler",
+    label: "Existing Butler"
+  });
+  const updated = await service.addButlerSession({
+    threadId: "thread-existing-butler",
+    label: "Desktop Butler"
+  });
+
+  assert.equal(worker.role, "worker-session");
+  assert.equal(butler.role, "butler-controller");
+  assert.equal(updated.id, butler.id);
+  assert.equal(updated.label, "Desktop Butler");
+
+  const status = await service.status();
+  assert.equal(status.sessions.length, 2);
+  assert.equal(status.sessions.find((session) => session.id === butler.id).managed, true);
+
+  const onlyButler = await service.listSessions({ role: "butler-controller" });
+  assert.deepEqual(onlyButler.map((session) => session.id), [butler.id]);
+
+  const events = await service.readLedger();
+  assert.deepEqual(events.map((event) => event.type), [
+    "session.registered",
+    "session.registered",
+    "session.updated"
+  ]);
+});
+
 function fakeClient(result) {
   return {
     async startEphemeralThread() {

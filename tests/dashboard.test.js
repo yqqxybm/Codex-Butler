@@ -16,6 +16,13 @@ test("dashboard renders goals, task states, and recent events as text", () => {
       objective: "Implement feature",
       ownerRole: "iteration-worker",
       state: "queued"
+    }],
+    sessions: [{
+      id: "session-1",
+      threadId: "thread-butler",
+      label: "Existing Butler",
+      role: "butler-controller",
+      source: "existing-local"
     }]
   }, [{
     type: "task.created",
@@ -26,5 +33,7 @@ test("dashboard renders goals, task states, and recent events as text", () => {
   assert.match(text, /Codex Butler Dashboard/);
   assert.match(text, /Goals: 1 total, 1 active, 0 done, 0 blocked/);
   assert.match(text, /queued: 1/);
+  assert.match(text, /Sessions: 1 managed, 1 butler/);
+  assert.match(text, /Existing Butler -> thread-butler/);
   assert.match(text, /task\.created/);
 });

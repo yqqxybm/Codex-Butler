@@ -2,7 +2,7 @@
 import { EventLedger } from "./ledger.js";
 import { runCapabilityProbe } from "./capabilityProbe.js";
 import { buildWorkOrder } from "./roleContracts.js";
-import { createDefaultService } from "./butlerService.js";
+import { createDefaultService, SESSION_ROLES } from "./butlerService.js";
 import { runDaemon } from "./daemon.js";
 import {
   installLaunchdServices,
@@ -114,6 +114,24 @@ async function main(argv) {
     const [taskId] = args;
     if (!taskId) throw new Error("usage: codex-butler promote-task <task-id>");
     console.log(JSON.stringify(await createDefaultService().promoteTask({ taskId }), null, 2));
+    return 0;
+  }
+
+  if (command === "register-session") {
+    const parsed = parseSessionArgs(args);
+    console.log(JSON.stringify(await createDefaultService().registerSession(parsed), null, 2));
+    return 0;
+  }
+
+  if (command === "add-butler-session") {
+    const parsed = parseSessionArgs(args);
+    console.log(JSON.stringify(await createDefaultService().addButlerSession(parsed), null, 2));
+    return 0;
+  }
+
+  if (command === "sessions") {
+    const parsed = parseSessionArgs(args, { allowMissingThreadId: true });
+    console.log(JSON.stringify(await createDefaultService().listSessions({ role: parsed.role }), null, 2));
     return 0;
   }
 
@@ -236,6 +254,15 @@ Commands:
   promote-task <task-id>
     Promote a verified task through the promotion gate.
 
+  register-session <thread-id> [role] [--label name] [--cwd path] [--source existing-local|app-server|manual] [--notes text]
+    Register an existing local Codex session/thread as Butler-managed state.
+
+  add-butler-session <thread-id> [--label name] [--cwd path] [--notes text]
+    Register an existing local Codex session/thread as the Butler controller.
+
+  sessions [role]
+    List managed sessions, optionally filtered by role.
+
   status
     Print goals, tasks, and control-plane data location.
 
@@ -271,6 +298,29 @@ function parseLaunchdArgs(argv) {
     else if (item === "--host") parsed.host = argv[++index];
     else if (item === "--port") parsed.port = argv[++index];
     else if (item === "--node-path") parsed.nodePath = argv[++index];
+  }
+  return parsed;
+}
+
+function parseSessionArgs(argv, options = {}) {
+  const positionals = [];
+  const parsed = { source: "existing-local" };
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (item === "--label") parsed.label = argv[++index];
+    else if (item === "--cwd") parsed.cwd = argv[++index];
+    else if (item === "--source") parsed.source = argv[++index];
+    else if (item === "--notes") parsed.notes = argv[++index];
+    else positionals.push(item);
+  }
+  if (!options.allowMissingThreadId && !positionals[0]) {
+    throw new Error("usage: codex-butler register-session <thread-id> [role]");
+  }
+  if (positionals[0]) parsed.threadId = positionals[0];
+  if (positionals[1]) parsed.role = positionals[1];
+  if (options.allowMissingThreadId && positionals[0] && SESSION_ROLES.includes(positionals[0])) {
+    parsed.role = positionals[0];
+    delete parsed.threadId;
   }
   return parsed;
 }

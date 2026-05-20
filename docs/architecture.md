@@ -43,9 +43,21 @@ wire format 不包含 `jsonrpc` 字段，和 Codex app-server 文档保持一致
 ### Butler Service
 
 `ButlerService` 是确定性控制平面核心。它拥有 goal/task state、append-only ledger、
-natural-language plan compilation、worker dispatch、worktree allocation、
-verification、promotion、dashboard rendering、daemon status 和 operational status。
+session registry、natural-language plan compilation、worker dispatch、worktree
+allocation、verification、promotion、dashboard rendering、daemon status 和
+operational status。
 面向模型的 Butler session 应该通过 MCP tools 调用这个 service，而不是直接写项目文件。
+
+### Session Registry
+
+session registry 把已有本地 Codex thread/session 纳入 Butler 管理面。记录字段包括
+thread id、role、label、source、cwd 和 managed 状态。`add-butler-session` 会把已有
+session 登记为 `butler-controller`，`register-session` 可登记普通 worker session 或
+具体 role session。
+
+这个 registry 是确定性状态记录，不假装拥有未经验证的自动发现能力。如果 app-server
+后续稳定提供 session enumeration API，可以在这里补 discovery adapter；当前边界是管理
+用户或上游系统明确给出的 thread/session id。
 
 ### Daemon Management
 
@@ -147,5 +159,6 @@ sandbox mode 运行，并把 `writableRoots` 限制到该 worktree。
 
 当前仓库实现的是本地确定性 Butler control plane：transport probes、daemon
 management、planning、MCP tools、dispatch、transcript evidence extraction、worktree
-allocation、verification、promotion、dashboard、本地 Web Console、macOS launchd 长期
-服务、测试和 runbook。远端部署、原生桌面 GUI、托管发布包不在当前本地控制平面边界内。
+allocation、verification、promotion、session registry、dashboard、本地 Web Console、
+macOS launchd 长期服务、测试和 runbook。远端部署、原生桌面 GUI、托管发布包不在当前
+本地控制平面边界内。

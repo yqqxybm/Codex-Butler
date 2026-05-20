@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { createDefaultService } from "./butlerService.js";
+import { createDefaultService, SESSION_ROLES, SESSION_SOURCES } from "./butlerService.js";
 
 export function createMcpServer(service = createDefaultService()) {
   const server = new McpServer({ name: "codex-butler", version: "0.1.0" });
@@ -61,6 +61,36 @@ export function createMcpServer(service = createDefaultService()) {
     inputSchema: { taskId: z.string().min(1) }
   }, ({ taskId }) => service.promoteTask({ taskId }));
 
+  registerJsonTool(server, "butler_register_session", {
+    description: "Register an existing local Codex session/thread as Butler-managed state.",
+    inputSchema: {
+      threadId: z.string().min(1),
+      role: z.enum(SESSION_ROLES).optional(),
+      label: z.string().optional(),
+      source: z.enum(SESSION_SOURCES).optional(),
+      cwd: z.string().optional(),
+      notes: z.string().optional()
+    }
+  }, ({ threadId, role, label, source, cwd, notes }) => service.registerSession({ threadId, role, label, source, cwd, notes }));
+
+  registerJsonTool(server, "butler_add_butler_session", {
+    description: "Register an existing local Codex session/thread as the Butler controller session.",
+    inputSchema: {
+      threadId: z.string().min(1),
+      label: z.string().optional(),
+      source: z.enum(SESSION_SOURCES).optional(),
+      cwd: z.string().optional(),
+      notes: z.string().optional()
+    }
+  }, ({ threadId, label, source, cwd, notes }) => service.addButlerSession({ threadId, label, source, cwd, notes }));
+
+  registerJsonTool(server, "butler_sessions", {
+    description: "List Butler-managed existing local sessions.",
+    inputSchema: {
+      role: z.enum(SESSION_ROLES).optional()
+    }
+  }, ({ role }) => service.listSessions({ role }));
+
   registerJsonTool(server, "butler_status", {
     description: "Read Butler goals, tasks, states, and data location.",
     inputSchema: {}
@@ -96,9 +126,10 @@ export function createMcpServer(service = createDefaultService()) {
 
 function registerJsonTool(server, name, config, handler) {
   server.registerTool(name, config, async (args) => {
-    const structuredContent = await handler(args);
+    const result = await handler(args);
+    const structuredContent = Array.isArray(result) ? { items: result } : result;
     return {
-      content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       structuredContent
     };
   });

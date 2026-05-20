@@ -8,10 +8,10 @@ export class StateStore {
 
   async load() {
     try {
-      return JSON.parse(await readFile(this.path, "utf8"));
+      return normalizeState(JSON.parse(await readFile(this.path, "utf8")));
     } catch (error) {
       if (error.code === "ENOENT") {
-        return { goals: {}, tasks: {} };
+        return emptyState();
       }
       throw error;
     }
@@ -19,6 +19,20 @@ export class StateStore {
 
   async save(state) {
     await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await writeFile(this.path, `${JSON.stringify(normalizeState(state), null, 2)}\n`, "utf8");
   }
+}
+
+function emptyState() {
+  return { goals: {}, tasks: {}, sessions: {} };
+}
+
+function normalizeState(state) {
+  return {
+    ...emptyState(),
+    ...state,
+    goals: state?.goals ?? {},
+    tasks: state?.tasks ?? {},
+    sessions: state?.sessions ?? {}
+  };
 }

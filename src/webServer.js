@@ -71,6 +71,10 @@ async function routeApi(method, url, request, response, service) {
     sendJson(response, 200, await service.daemonStatus());
     return;
   }
+  if (method === "GET" && url.pathname === "/api/sessions") {
+    sendJson(response, 200, await service.listSessions());
+    return;
+  }
   if (method === "POST" && url.pathname === "/api/daemon/start") {
     sendJson(response, 200, await service.startDaemon());
     return;
@@ -87,6 +91,29 @@ async function routeApi(method, url, request, response, service) {
   if (method === "POST" && url.pathname === "/api/goals/plan") {
     const body = await readJsonBody(request);
     sendJson(response, 200, await service.planGoal({ objective: requiredText(body.objective, "objective") }));
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/sessions/register") {
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await service.registerSession({
+      threadId: requiredText(body.threadId, "threadId"),
+      role: body.role,
+      label: body.label,
+      source: body.source,
+      cwd: body.cwd,
+      notes: body.notes
+    }));
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/sessions/butler") {
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await service.addButlerSession({
+      threadId: requiredText(body.threadId, "threadId"),
+      label: body.label,
+      source: body.source,
+      cwd: body.cwd,
+      notes: body.notes
+    }));
     return;
   }
 

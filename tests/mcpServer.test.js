@@ -22,6 +22,8 @@ test("MCP server exposes Butler tools and can submit a goal", async () => {
     assert.ok(tools.tools.some((tool) => tool.name === "butler_plan_goal"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_dashboard"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_daemon_status"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_add_butler_session"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_sessions"));
 
     const result = await client.callTool({
       name: "butler_submit_goal",
@@ -45,6 +47,20 @@ test("MCP server exposes Butler tools and can submit a goal", async () => {
     });
     const dashboardText = dashboard.content.find((item) => item.type === "text").text;
     assert.match(JSON.parse(dashboardText).dashboard, /Codex Butler Dashboard/);
+
+    const session = await client.callTool({
+      name: "butler_add_butler_session",
+      arguments: { threadId: "thread-mcp-butler", label: "MCP Butler" }
+    });
+    const sessionText = session.content.find((item) => item.type === "text").text;
+    assert.equal(JSON.parse(sessionText).role, "butler-controller");
+
+    const sessions = await client.callTool({
+      name: "butler_sessions",
+      arguments: { role: "butler-controller" }
+    });
+    const sessionsText = sessions.content.find((item) => item.type === "text").text;
+    assert.deepEqual(JSON.parse(sessionsText).map((item) => item.threadId), ["thread-mcp-butler"]);
 
     const daemon = await client.callTool({
       name: "butler_daemon_status",

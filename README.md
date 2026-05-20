@@ -32,6 +32,8 @@ npm run smoke
 npm run daemon -- status
 npm run launchd -- install
 npm run launchd -- status
+npm run butler -- add-butler-session <thread-id> --label "Desktop Butler"
+npm run butler -- sessions
 npm run butler -- plan-goal "ship a feature"
 npm run butler -- status
 npm run butler -- dashboard
@@ -66,6 +68,8 @@ JSON-RPC，创建临时 read-only thread，运行安全命令，并验证 read-o
 - 本地 Web Console，用于查看 goal/task/event 并触发 daemon、dispatch、verify、
   promote 等操作。
 - macOS `launchd` 长期服务，让 daemon 和 Web Console 在当前终端退出后继续运行。
+- 本地 session registry：可以把已有 Codex thread/session id 登记到 Butler 管理面，
+  包括把某个已有 session 标记为 `butler-controller`。
 
 这是本地确定性控制平面。它目前不声称已经实现远端集群部署、原生桌面 GUI 或正式托管
 发布包。
@@ -80,6 +84,9 @@ npm run butler -- dispatch-task <task-id>
 npm run butler -- verify-task <task-id>
 npm run butler -- verify-task <task-id> -- npm test
 npm run butler -- promote-task <task-id>
+npm run butler -- register-session <thread-id> worker-session --label "Existing worker"
+npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
+npm run butler -- sessions
 npm run butler -- status
 npm run butler -- dashboard
 npm run daemon -- start
@@ -98,6 +105,9 @@ MCP server 暴露同一套控制平面能力：
 - `butler_allocate_worktree`
 - `butler_run_verifier`
 - `butler_promote_task`
+- `butler_register_session`
+- `butler_add_butler_session`
+- `butler_sessions`
 - `butler_status`
 - `butler_dashboard`
 - `butler_daemon_status`
@@ -113,8 +123,23 @@ npm run web -- --host 127.0.0.1 --port 4177
 
 打开 `http://127.0.0.1:4177` 使用本地 Web Console。默认只绑定
 `127.0.0.1`，提供和 CLI 相同的本地控制平面操作：规划 goal、查看 task/event、
-管理 daemon、分配 worktree、dispatch task、运行 verification、promotion verified
-work。
+登记已有本地 session、管理 daemon、分配 worktree、dispatch task、运行 verification、
+promotion verified work。
+
+## 管理已有本地 Session
+
+如果本地已经有可识别的 Codex thread/session id，可以把它登记进 Butler 状态，而不是
+只能让 Butler 新建 worker session：
+
+```sh
+npm run butler -- register-session <thread-id> worker-session --label "Existing worker"
+npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
+npm run butler -- sessions
+```
+
+`add-butler-session` 是 `register-session` 的快捷形式，会把该已有 session 标记为
+`butler-controller`。当前实现负责把已有 session 纳入 Butler 的状态、dashboard、MCP 和
+Web Console；它不会伪造 app-server 不提供的“自动枚举所有本地会话”能力。
 
 ## 长期本地服务
 

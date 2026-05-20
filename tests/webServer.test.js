@@ -38,6 +38,27 @@ test("web server plans goals and exposes dashboard data", async () => {
   }
 });
 
+test("web server registers an existing session as the Butler controller", async () => {
+  const { baseUrl, close } = await startTestServer();
+  try {
+    const session = await fetchJson(`${baseUrl}/api/sessions/butler`, {
+      method: "POST",
+      body: JSON.stringify({ threadId: "thread-web-butler", label: "Web Butler" })
+    });
+    assert.equal(session.role, "butler-controller");
+    assert.equal(session.source, "existing-local");
+
+    const sessions = await fetchJson(`${baseUrl}/api/sessions`, { method: "GET" });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].threadId, "thread-web-butler");
+
+    const dashboard = await fetchJson(`${baseUrl}/api/dashboard`);
+    assert.equal(dashboard.status.sessions.length, 1);
+  } finally {
+    await close();
+  }
+});
+
 test("web server rejects unknown API routes", async () => {
   const { baseUrl, close } = await startTestServer();
   try {

@@ -19,6 +19,7 @@
         <nav class="rail-nav" aria-label="Sections">
           <a href="#overview" class="active">Overview</a>
           <a href="#goals">Goals</a>
+          <a href="#sessions">Sessions</a>
           <a href="#tasks">Tasks</a>
           <a href="#events">Events</a>
         </nav>
@@ -52,6 +53,18 @@
           </form>
         </section>
 
+        <section class="planner-band" aria-label="Register an existing session">
+          <form class="planner-form" id="sessionForm">
+            <label for="sessionThreadInput">Existing session / thread</label>
+            <div class="planner-row">
+              <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="Paste an existing Codex thread/session id" required>
+              <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="Butler label">
+              <button class="button primary" type="submit">Add Butler Session</button>
+            </div>
+            <p class="helper-text" id="sessionHelp">Registers a local existing session as the Butler controller.</p>
+          </form>
+        </section>
+
         <section class="metric-grid" aria-label="Summary metrics">
           <article class="metric-panel">
             <span class="metric-label">Goals</span>
@@ -69,9 +82,9 @@
             <small>goals and tasks</small>
           </article>
           <article class="metric-panel accent-panel">
-            <span class="metric-label">Evidence</span>
-            <strong id="verifiedCount">0</strong>
-            <small>verified or promoted</small>
+            <span class="metric-label">Sessions</span>
+            <strong id="sessionCount">0</strong>
+            <small id="butlerSessionCount">0 butler</small>
           </article>
         </section>
 
@@ -106,6 +119,16 @@
               </div>
             </div>
             <div class="list" id="goalsList"></div>
+          </section>
+
+          <section class="panel" id="sessions">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">managed local sessions</p>
+                <h3>Sessions</h3>
+              </div>
+            </div>
+            <div class="list" id="sessionsList"></div>
           </section>
 
           <section class="panel task-panel" id="tasks">

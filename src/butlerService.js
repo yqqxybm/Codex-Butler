@@ -12,6 +12,23 @@ import { applyTranscriptEvidence, extractSkillReadEvidence } from "./evidence.js
 import { renderDashboard } from "./dashboard.js";
 import { readDaemonStatus, startDaemon, stopDaemon } from "./daemon.js";
 
+export const SESSION_ROLES = Object.freeze([
+  "butler-controller",
+  "worker-session",
+  "iteration-worker",
+  "review-worker",
+  "analysis-worker",
+  "refine-worker",
+  "verifier",
+  "promoter"
+]);
+
+export const SESSION_SOURCES = Object.freeze([
+  "existing-local",
+  "app-server",
+  "manual"
+]);
+
 export class ButlerService {
   constructor(options = {}) {
     this.projectRoot = options.projectRoot ?? process.cwd();
@@ -97,6 +114,64 @@ export class ButlerService {
       classification: plan.classification
     });
     return { goal: state.goals[goal.id], plan, tasks };
+  }
+
+  async registerSession({
+    threadId,
+    role = "worker-session",
+    label = null,
+    source = "existing-local",
+    cwd = null,
+    notes = null
+  }) {
+    const normalizedThreadId = requiredText(threadId, "threadId");
+    const normalizedRole = normalizeSessionRole(role);
+    const normalizedSource = normalizeSessionSource(source);
+    const state = await this.state.load();
+    const now = new Date().toISOString();
+    const existing = Object.values(state.sessions)
+      .find((session) => session.threadId === normalizedThreadId && session.role === normalizedRole);
+    const session = {
+      kind: "session",
+      id: existing?.id ?? `session-${randomUUID()}`,
+      threadId: normalizedThreadId,
+      role: normalizedRole,
+      label: optionalText(label) ?? existing?.label ?? defaultSessionLabel(normalizedRole),
+      source: normalizedSource,
+      managed: true,
+      cwd: optionalText(cwd) ?? existing?.cwd ?? this.projectRoot,
+      notes: optionalText(notes) ?? existing?.notes ?? null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+    state.sessions[session.id] = session;
+    await this.state.save(state);
+    await this.ledger.append(existing ? "session.updated" : "session.registered", {
+      sessionId: session.id,
+      threadId: session.threadId,
+      role: session.role,
+      source: session.source
+    });
+    return session;
+  }
+
+  async addButlerSession({ threadId, label = null, source = "existing-local", cwd = null, notes = null }) {
+    return this.registerSession({
+      threadId,
+      role: "butler-controller",
+      label,
+      source,
+      cwd,
+      notes
+    });
+  }
+
+  async listSessions({ role = null } = {}) {
+    const state = await this.state.load();
+    const sessions = Object.values(state.sessions);
+    if (!role) return sessions;
+    const normalizedRole = normalizeSessionRole(role);
+    return sessions.filter((session) => session.role === normalizedRole);
   }
 
   async dispatchTask({ taskId }) {
@@ -265,7 +340,8 @@ export class ButlerService {
       projectRoot: this.projectRoot,
       dataDir: this.dataDir,
       goals: Object.values(state.goals),
-      tasks: Object.values(state.tasks)
+      tasks: Object.values(state.tasks),
+      sessions: Object.values(state.sessions)
     };
   }
 
@@ -326,6 +402,40 @@ function parseJson(text) {
   } catch {
     return null;
   }
+}
+
+function requiredText(value, name) {
+  const text = optionalText(value);
+  if (!text) throw new Error(`${name} is required`);
+  return text;
+}
+
+function optionalText(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === "" ? null : text;
+}
+
+function normalizeSessionRole(role) {
+  const text = requiredText(role, "role");
+  if (!SESSION_ROLES.includes(text)) {
+    throw new Error(`Unknown session role: ${text}`);
+  }
+  return text;
+}
+
+function normalizeSessionSource(source) {
+  const text = requiredText(source, "source");
+  if (!SESSION_SOURCES.includes(text)) {
+    throw new Error(`Unknown session source: ${text}`);
+  }
+  return text;
+}
+
+function defaultSessionLabel(role) {
+  if (role === "butler-controller") return "Butler controller";
+  if (role === "worker-session") return "Managed local session";
+  return role;
 }
 
 function completeGateTask(task, gate, evidence) {

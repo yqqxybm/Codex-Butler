@@ -39,11 +39,30 @@ npm run probe:turn
 npm run butler -- submit-goal "ship a feature"
 npm run butler -- plan-goal "ship a feature"
 npm run butler -- create-task <goal-id> verifier "run smoke checks"
+npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
+npm run butler -- sessions
 npm run butler -- status
 npm run butler -- dashboard
 ```
 
 状态和 ledger 文件存放在 `.codex-butler/`，该目录故意被 git 忽略。
+
+## 管理已有本地 Session
+
+已有本地 Codex thread/session 可以手动登记进 Butler control plane：
+
+```sh
+npm run butler -- register-session <thread-id> worker-session --label "Existing worker"
+npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
+npm run butler -- sessions
+```
+
+`register-session` 用于登记普通已有 session；`add-butler-session` 用于把某个已有 session
+标记为 `butler-controller`。这些记录会进入 `.codex-butler/state.json`，并出现在 CLI
+status、dashboard、MCP tools 和 Web Console 中。
+
+注意：当前 Codex app-server 路径没有被本项目验证过“枚举所有本地会话”的稳定 API。
+因此这里不做假发现；只管理已经明确给出 thread/session id 的本地 session。
 
 ## Butler Daemon
 
@@ -65,8 +84,8 @@ npm run mcp
 ```
 
 这个命令是 Butler session 使用的 stdio MCP server 入口。server 暴露 goal、task、
-dispatch、worktree、verifier、promotion、status、ledger、planning、dashboard 和
-daemon 管理工具。
+dispatch、worktree、verifier、promotion、status、ledger、planning、dashboard、
+daemon 管理和 session registry 工具。
 
 ## Web Console
 

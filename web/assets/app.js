@@ -5,8 +5,12 @@ const state = {
 
 const elements = {
   plannerForm: document.querySelector("#plannerForm"),
+  sessionForm: document.querySelector("#sessionForm"),
   objectiveInput: document.querySelector("#objectiveInput"),
+  sessionThreadInput: document.querySelector("#sessionThreadInput"),
+  sessionLabelInput: document.querySelector("#sessionLabelInput"),
   formHelp: document.querySelector("#formHelp"),
+  sessionHelp: document.querySelector("#sessionHelp"),
   refreshButton: document.querySelector("#refreshButton"),
   startDaemonButton: document.querySelector("#startDaemonButton"),
   stopDaemonButton: document.querySelector("#stopDaemonButton"),
@@ -16,8 +20,10 @@ const elements = {
   taskCount: document.querySelector("#taskCount"),
   queuedTaskCount: document.querySelector("#queuedTaskCount"),
   blockedCount: document.querySelector("#blockedCount"),
-  verifiedCount: document.querySelector("#verifiedCount"),
+  sessionCount: document.querySelector("#sessionCount"),
+  butlerSessionCount: document.querySelector("#butlerSessionCount"),
   goalsList: document.querySelector("#goalsList"),
+  sessionsList: document.querySelector("#sessionsList"),
   taskTable: document.querySelector("#taskTable"),
   eventLog: document.querySelector("#eventLog"),
   toast: document.querySelector("#toast")
@@ -32,6 +38,20 @@ elements.plannerForm.addEventListener("submit", async (event) => {
     body: JSON.stringify({ objective })
   }));
   elements.objectiveInput.value = "";
+  await refresh();
+});
+
+elements.sessionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const threadId = elements.sessionThreadInput.value.trim();
+  const label = elements.sessionLabelInput.value.trim();
+  if (!threadId) return;
+  await runAction("Butler session added", () => api("/api/sessions/butler", {
+    method: "POST",
+    body: JSON.stringify({ threadId, label: label || null })
+  }));
+  elements.sessionThreadInput.value = "";
+  elements.sessionLabelInput.value = "";
   await refresh();
 });
 
@@ -96,6 +116,7 @@ async function api(path, options = {}) {
 function render(data) {
   const goals = data.status.goals ?? [];
   const tasks = data.status.tasks ?? [];
+  const sessions = data.status.sessions ?? [];
   const events = data.recentEvents ?? [];
   const activeGoals = goals.filter((goal) => !["done", "failed"].includes(goal.state));
   const queuedTasks = tasks.filter((task) => task.state === "queued");
@@ -103,16 +124,18 @@ function render(data) {
     ...goals.filter((goal) => goal.state === "blocked"),
     ...tasks.filter((task) => task.state === "blocked")
   ];
-  const verified = tasks.filter((task) => ["verified", "promoted"].includes(task.state));
+  const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
 
   elements.goalCount.textContent = goals.length;
   elements.activeGoalCount.textContent = `${activeGoals.length} active`;
   elements.taskCount.textContent = tasks.length;
   elements.queuedTaskCount.textContent = `${queuedTasks.length} queued`;
   elements.blockedCount.textContent = blocked.length;
-  elements.verifiedCount.textContent = verified.length;
+  elements.sessionCount.textContent = sessions.length;
+  elements.butlerSessionCount.textContent = `${butlerSessions.length} butler`;
   renderDaemon(data.daemon);
   renderGoals(goals);
+  renderSessions(sessions);
   renderTasks(tasks);
   renderEvents(events);
 }
@@ -138,6 +161,24 @@ function renderGoals(goals) {
       </div>
       <p class="item-title">${escapeHtml(goal.objective)}</p>
       <p class="item-subtitle">${goal.history?.length ?? 0} transitions recorded</p>
+    </article>
+  `).join("");
+}
+
+function renderSessions(sessions) {
+  if (sessions.length === 0) {
+    elements.sessionsList.innerHTML = `<div class="empty-state">No managed sessions yet. Register an existing local session to make it visible to Butler.</div>`;
+    return;
+  }
+  elements.sessionsList.innerHTML = sessions.map((session) => `
+    <article class="goal-item">
+      <div class="item-meta">
+        <span class="pill ${session.role === "butler-controller" ? "good" : ""}">${escapeHtml(session.role)}</span>
+        <span class="pill">${escapeHtml(session.source)}</span>
+        <span class="pill">${escapeHtml(shortId(session.id))}</span>
+      </div>
+      <p class="item-title">${escapeHtml(session.label)}</p>
+      <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""}</p>
     </article>
   `).join("");
 }
