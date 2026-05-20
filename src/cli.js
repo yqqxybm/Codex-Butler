@@ -79,6 +79,13 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "replan-goal") {
+    const [goalId] = args;
+    if (!goalId) throw new Error("usage: codex-butler replan-goal <goal-id>");
+    console.log(JSON.stringify(await createDefaultService().replanGoal({ goalId }), null, 2));
+    return 0;
+  }
+
   if (command === "create-task") {
     const [goalId, role, ...objectiveParts] = args;
     if (!goalId || !role || objectiveParts.length === 0) {
@@ -136,6 +143,12 @@ async function main(argv) {
   if (command === "add-butler-session") {
     const parsed = parseSessionArgs(args);
     console.log(JSON.stringify(await createDefaultService().addButlerSession(parsed), null, 2));
+    return 0;
+  }
+
+  if (command === "add-current-butler-session") {
+    const parsed = parseSessionArgs(args, { allowMissingThreadId: true });
+    console.log(JSON.stringify(await createDefaultService().addCurrentButlerSession(parsed), null, 2));
     return 0;
   }
 
@@ -264,6 +277,9 @@ Commands:
   advance-goal <goal-id> [--max-steps <n>]
     Advance the next runnable goal step, or continue up to max steps.
 
+  replan-goal <goal-id>
+    Replace queued tasks for a goal with a fresh compiled plan.
+
   create-task <goal-id> <role> <objective>
     Create a role-owned task under a goal.
 
@@ -279,11 +295,14 @@ Commands:
   promote-task <task-id>
     Promote a verified task through the promotion gate.
 
-  register-session <thread-id> [role] [--label name] [--cwd path] [--source existing-local|app-server|manual] [--notes text]
+  register-session <thread-id> [role] [--label name] [--cwd path] [--source existing-local|app-server|current-session|manual] [--notes text]
     Register an existing local Codex session/thread as Butler-managed state.
 
   add-butler-session <thread-id> [--label name] [--cwd path] [--notes text]
     Register an existing local Codex session/thread as the Butler controller.
+
+  add-current-butler-session [--label name] [--cwd path] [--notes text]
+    Register the current Codex session from CODEX_THREAD_ID as an attached Butler controller.
 
   sessions [role]
     List managed sessions, optionally filtered by role.

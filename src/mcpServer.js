@@ -25,6 +25,13 @@ export function createMcpServer(service = createDefaultService()) {
     }
   }, ({ goalId, maxSteps }) => service.advanceGoal({ goalId, maxSteps }));
 
+  registerJsonTool(server, "butler_replan_goal", {
+    description: "Replace queued tasks for a Butler goal with a fresh compiled plan.",
+    inputSchema: {
+      goalId: z.string().min(1)
+    }
+  }, ({ goalId }) => service.replanGoal({ goalId }));
+
   registerJsonTool(server, "butler_create_task", {
     description: "Create a task owned by a specific worker role.",
     inputSchema: {
@@ -91,6 +98,15 @@ export function createMcpServer(service = createDefaultService()) {
       notes: z.string().optional()
     }
   }, ({ threadId, label, source, cwd, notes }) => service.addButlerSession({ threadId, label, source, cwd, notes }));
+
+  registerJsonTool(server, "butler_add_current_butler_session", {
+    description: "Register the current Codex session from CODEX_THREAD_ID as an attached Butler controller.",
+    inputSchema: {
+      label: z.string().optional(),
+      cwd: z.string().optional(),
+      notes: z.string().optional()
+    }
+  }, ({ label, cwd, notes }) => service.addCurrentButlerSession({ label, cwd, notes }));
 
   registerJsonTool(server, "butler_sessions", {
     description: "List Butler-managed existing local sessions.",

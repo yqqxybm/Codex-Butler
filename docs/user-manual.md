@@ -22,6 +22,15 @@ http://127.0.0.1:4177
 
 这一步是硬标准：**检查成功才算可用，登记成功不算可用。**
 
+如果你希望当前正在对话的 Codex 会话当管家，在终端运行：
+
+```sh
+npm run butler -- add-current-butler-session --label "Current Codex Butler"
+```
+
+这类会话会显示为 `attached`。含义是：当前会话可以作为你正在使用的管家来操作 Butler；
+但它不是可被 app-server 重新发消息的 worker 会话。
+
 ## 2. 输入目标
 
 在“输入这轮要完成的目标”里写你要 Butler 推进的事，例如：
@@ -74,8 +83,10 @@ http://127.0.0.1:4177
 
 ```sh
 npm run launchd -- status
+npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- probe-sessions
 npm run butler -- plan-goal "你的目标"
+npm run butler -- replan-goal <goal-id>
 npm run butler -- advance-goal <goal-id>
 npm run butler -- advance-goal <goal-id> --max-steps 20
 ```
@@ -90,4 +101,5 @@ npm run butler -- dashboard
 
 - Butler 只能控制当前 app-server transport 能找到的 session。
 - 如果检查返回 `thread not found`，说明这个 id 当前不可达。
+- `current-session / attached` 只能代表当前 Codex 会话已作为管家附着，不能代表它可以被远程 dispatch。
 - 自动推进会真实运行 worker turn、验证命令和提升 gate；不要在未准备好的项目里随便点“自动推进”。

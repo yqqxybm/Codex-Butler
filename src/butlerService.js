@@ -26,6 +26,7 @@ export const SESSION_ROLES = Object.freeze([
 export const SESSION_SOURCES = Object.freeze([
   "existing-local",
   "app-server",
+  "current-session",
   "manual"
 ]);
 
@@ -116,6 +117,52 @@ export class ButlerService {
     return { goal: state.goals[goal.id], plan, tasks };
   }
 
+  async replanGoal({ goalId, ownedScope = this.projectRoot, verificationCommand = ["npm", "test"] }) {
+    const state = await this.state.load();
+    const goal = requiredGoal(state, goalId);
+    const existingTasks = orderedGoalTasks(state, goal.id);
+    const nonQueuedTasks = existingTasks.filter((task) => task.state !== "queued");
+    if (nonQueuedTasks.length > 0) {
+      throw new Error(`Goal ${goalId} cannot be replanned after work started: ${nonQueuedTasks.map((task) => task.id).join(", ")}`);
+    }
+
+    for (const task of existingTasks) {
+      delete state.tasks[task.id];
+    }
+    await this.state.save(state);
+
+    const plan = compilePlan({
+      objective: goal.objective,
+      projectRoot: this.projectRoot,
+      ownedScope,
+      verificationCommand
+    });
+    const planIdToTaskId = new Map();
+    const tasks = [];
+    for (const item of plan.tasks) {
+      const task = await this.createTask({
+        goalId: goal.id,
+        role: item.role,
+        objective: item.objective,
+        ownedScope: item.ownedScope,
+        prerequisites: item.prerequisites.map((id) => planIdToTaskId.get(id) ?? id),
+        verificationCommand: item.verificationCommand,
+        planItemId: item.id,
+        targetTaskId: item.targetPlanItemId ? planIdToTaskId.get(item.targetPlanItemId) ?? null : null
+      });
+      planIdToTaskId.set(item.id, task.id);
+      tasks.push(task);
+    }
+    const nextState = await this.state.load();
+    await this.ledger.append("goal.replanned", {
+      goalId: goal.id,
+      removedTaskIds: existingTasks.map((task) => task.id),
+      taskIds: tasks.map((task) => task.id),
+      classification: plan.classification
+    });
+    return { goal: nextState.goals[goal.id], plan, tasks };
+  }
+
   async registerSession({
     threadId,
     role = "worker-session",
@@ -141,9 +188,11 @@ export class ButlerService {
       managed: true,
       cwd: optionalText(cwd) ?? existing?.cwd ?? this.projectRoot,
       notes: optionalText(notes) ?? existing?.notes ?? null,
+      health: existing?.health,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
+    if (!session.health) delete session.health;
     state.sessions[session.id] = session;
     await this.state.save(state);
     await this.ledger.append(existing ? "session.updated" : "session.registered", {
@@ -166,6 +215,29 @@ export class ButlerService {
     });
   }
 
+  async addCurrentButlerSession({ label = null, cwd = null, notes = null } = {}) {
+    const threadId = requiredText(process.env.CODEX_THREAD_ID, "CODEX_THREAD_ID");
+    const session = await this.registerSession({
+      threadId,
+      role: "butler-controller",
+      label: label ?? "Current Codex Butler",
+      source: "current-session",
+      cwd,
+      notes: notes ?? "Current active Codex session attached through CODEX_THREAD_ID; not an app-server dispatch target."
+    });
+    const state = await this.state.load();
+    const attached = markSessionAttached(state.sessions[session.id]);
+    state.sessions[session.id] = attached;
+    await this.state.save(state);
+    await this.ledger.append("session.attached", {
+      sessionId: attached.id,
+      threadId: attached.threadId,
+      role: attached.role,
+      source: attached.source
+    });
+    return attached;
+  }
+
   async listSessions({ role = null } = {}) {
     const state = await this.state.load();
     const sessions = Object.values(state.sessions);
@@ -177,9 +249,33 @@ export class ButlerService {
   async probeSession({ sessionIdOrThreadId }) {
     const target = requiredText(sessionIdOrThreadId, "sessionIdOrThreadId");
     const state = await this.state.load();
-    const session = Object.values(state.sessions)
-      .find((item) => item.id === target || item.threadId === target);
+    const session = resolveSessionTarget(state, target);
     if (!session) throw new Error(`Unknown session: ${target}`);
+
+    if (isCurrentAttachedSession(session)) {
+      const attached = markSessionAttached(session);
+      state.sessions[attached.id] = attached;
+      const result = {
+        ok: true,
+        mode: "current-session",
+        sessionId: attached.id,
+        threadId: attached.threadId,
+        turnId: null,
+        turnStatus: "attached",
+        finalText: null,
+        error: null
+      };
+      await this.state.save(state);
+      await this.ledger.append("session.probed", {
+        sessionId: attached.id,
+        threadId: attached.threadId,
+        ok: result.ok,
+        turnId: null,
+        mode: result.mode,
+        error: null
+      });
+      return result;
+    }
 
     const client = this.clientFactory();
     let result;
@@ -662,6 +758,38 @@ function normalizeSessionSource(source) {
     throw new Error(`Unknown session source: ${text}`);
   }
   return text;
+}
+
+function resolveSessionTarget(state, target) {
+  const exact = state.sessions[target];
+  if (exact) return exact;
+  const matches = Object.values(state.sessions).filter((item) => item.threadId === target);
+  if (matches.length === 0) return null;
+  const currentThreadId = process.env.CODEX_THREAD_ID;
+  if (currentThreadId && target === currentThreadId) {
+    const currentButler = matches.find((item) => item.role === "butler-controller" && item.source === "current-session");
+    if (currentButler) return currentButler;
+  }
+  return matches.find((item) => item.role === "butler-controller") ?? matches[0];
+}
+
+function isCurrentAttachedSession(session) {
+  return session?.source === "current-session"
+    && session.threadId
+    && process.env.CODEX_THREAD_ID === session.threadId;
+}
+
+function markSessionAttached(session) {
+  return {
+    ...session,
+    health: {
+      status: "attached",
+      probedAt: new Date().toISOString(),
+      turnId: null,
+      error: null,
+      detail: "This is the current Codex session. It can operate Butler tools here, but it is not reachable as a remote app-server worker turn."
+    }
+  };
 }
 
 function defaultSessionLabel(role) {

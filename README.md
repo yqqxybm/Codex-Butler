@@ -29,6 +29,15 @@ http://127.0.0.1:4177
 检查全部会话 -> 输入目标 -> 生成并推进 -> 继续推进 / 自动推进
 ```
 
+如果你要把正在对话的这个 Codex 会话作为管家，先运行：
+
+```sh
+npm run butler -- add-current-butler-session --label "Current Codex Butler"
+```
+
+这会读取 `CODEX_THREAD_ID` 并登记为 `current-session`。它表示“当前会话已附着为管家”，
+不表示它可以被新的 app-server 连接重新发 turn。
+
 ## 怎么判断 session 有用
 
 session 出现在列表里只代表“已登记”，不代表 Butler 真能控制它。
@@ -47,8 +56,10 @@ npm run butler -- probe-session <session-id-or-thread-id>
 ```sh
 npm run launchd -- status
 npm run butler -- sessions
+npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- probe-sessions
 npm run butler -- plan-goal "你的目标"
+npm run butler -- replan-goal <goal-id>
 npm run butler -- advance-goal <goal-id>
 npm run butler -- advance-goal <goal-id> --max-steps 20
 npm run butler -- dashboard

@@ -38,9 +38,11 @@ npm run probe:turn
 ```sh
 npm run butler -- submit-goal "ship a feature"
 npm run butler -- plan-goal "ship a feature"
+npm run butler -- replan-goal <goal-id>
 npm run butler -- advance-goal <goal-id>
 npm run butler -- advance-goal <goal-id> --max-steps 20
 npm run butler -- create-task <goal-id> verifier "run smoke checks"
+npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
 npm run butler -- sessions
 npm run butler -- probe-sessions
@@ -56,6 +58,7 @@ npm run butler -- dashboard
 
 ```sh
 npm run butler -- register-session <thread-id> worker-session --label "Existing worker"
+npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
 npm run butler -- sessions
 npm run butler -- probe-session <thread-id>
@@ -64,6 +67,11 @@ npm run butler -- probe-session <thread-id>
 `register-session` 用于登记普通已有 session；`add-butler-session` 用于把某个已有 session
 标记为 `butler-controller`。这些记录会进入 `.codex-butler/state.json`，并出现在 CLI
 status、dashboard、MCP tools 和 Web Console 中。
+
+`add-current-butler-session` 会读取当前进程的 `CODEX_THREAD_ID`，把正在对话的 Codex
+会话登记为 `current-session` 管家，并标记为 `attached`。这个状态表示当前会话可以作为
+人工操作中的 Butler controller；它不表示 app-server 可以在新连接里重新向该 thread 发
+turn。
 
 注意：当前 Codex app-server 路径没有被本项目验证过“枚举所有本地会话”的稳定 API。
 因此这里不做假发现；只管理已经明确给出 thread/session id 的本地 session。
@@ -155,12 +163,14 @@ LaunchAgent plist 文件存放在 `~/Library/LaunchAgents/`。卸载服务不会
 
 ```sh
 npm run butler -- plan-goal "Build a CLI dashboard and tests"
+npm run butler -- replan-goal <goal-id>
 npm run butler -- advance-goal <goal-id>
 npm run butler -- advance-goal <goal-id> --max-steps 20
 npm run butler -- dashboard
 ```
 
 `plan-goal` 会创建一个 goal 和一组有顺序、带 role ownership 的 tasks。
+`replan-goal` 只允许替换尚未开始执行、所有 task 仍是 `queued` 的目标任务图。
 implementation goal 会生成 iteration、review、verifier、promoter tasks。
 review-only goal 只生成 review 和 verifier tasks。后续 gate task 会携带
 `targetTaskId`，让 Butler session 明确知道它正在 review、verify 或 promote 哪个上游

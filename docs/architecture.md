@@ -59,13 +59,19 @@ thread id、role、label、source、cwd 和 managed 状态。`add-butler-session
 session 登记为 `butler-controller`，`register-session` 可登记普通 worker session 或
 具体 role session。
 
+`add-current-butler-session` 是当前 Codex 会话的专用入口。它读取 `CODEX_THREAD_ID`，
+登记 source 为 `current-session`，并把 health 标记为 `attached`。`attached` 只说明当前
+会话可以作为人工操作中的 Butler controller；它不等同于 `reachable`，也不会被当作远程
+worker dispatch 目标。
+
 这个 registry 是确定性状态记录，不假装拥有未经验证的自动发现能力。如果 app-server
 后续稳定提供 session enumeration API，可以在这里补 discovery adapter；当前边界是管理
 用户或上游系统明确给出的 thread/session id。
 
-session registry 还提供 probe gate。probe 会向目标 session 发一个最小 schema turn；
-只有 probe 成功的 session 才能被当前 transport 视为可达。单纯登记成功不等于 session
-可用。
+session registry 还提供 probe gate。普通 session 的 probe 会向目标 session 发一个最小
+schema turn；只有 probe 成功的普通 session 才能被当前 transport 视为可达。`current-session`
+的 probe 是附着检查：只验证它确实匹配当前进程的 `CODEX_THREAD_ID`，并保持 `attached`
+状态。单纯登记成功不等于 session 可用。
 
 ### Daemon Management
 
@@ -92,6 +98,11 @@ review、verifier 和 promoter tasks，并记录 prerequisites，让 Butler sess
 执行图。review task 可以在 implementation task 完成 dispatch 并进入 `validating` 后运行；
 verifier 和 promoter 仍要求上游 gate verified。gate tasks 会带 `targetTaskId`，指向它正在
 review、verify 或 promote 的上游 task。
+
+产品成熟度、生产可用性、架构迁移、重构和策略类目标会先生成 analysis task，再进入
+implementation/review/verification/promotion，避免把产品级目标压扁成普通代码修改。
+`replanGoal` 可在所有旧 task 仍是 `queued` 时替换任务图，用于修正分类器升级或目标理解
+变化；一旦任何任务开始执行，就拒绝重排，避免丢失执行证据。
 
 ### Transcript Evidence
 

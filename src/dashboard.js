@@ -6,6 +6,7 @@ export function renderDashboard(status, events = []) {
   const doneGoals = goals.filter((goal) => goal.state === "done");
   const blockedGoals = goals.filter((goal) => goal.state === "blocked");
   const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
+  const usableButlers = butlerSessions.filter((session) => ["reachable", "attached"].includes(session.health?.status));
   const taskCounts = countBy(tasks, "state");
   const lines = [
     "Codex Butler Dashboard",
@@ -14,7 +15,7 @@ export function renderDashboard(status, events = []) {
     "",
     `Goals: ${goals.length} total, ${activeGoals.length} active, ${doneGoals.length} done, ${blockedGoals.length} blocked`,
     `Tasks: ${tasks.length} total${formatTaskCounts(taskCounts)}`,
-    `Sessions: ${sessions.length} managed, ${butlerSessions.length} butler`,
+    `Sessions: ${sessions.length} managed, ${butlerSessions.length} butler, ${usableButlers.length} usable butler`,
     ""
   ];
 
@@ -39,7 +40,8 @@ export function renderDashboard(status, events = []) {
   if (sessions.length === 0) lines.push("- none");
   else {
     for (const session of sessions.slice(0, 10)) {
-      lines.push(`- ${session.id} [${session.role}] ${session.label} -> ${session.threadId}`);
+      const health = session.health?.status ? ` (${session.health.status})` : "";
+      lines.push(`- ${session.id} [${session.role}]${health} ${session.label} -> ${session.threadId}`);
     }
   }
 

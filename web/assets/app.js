@@ -150,7 +150,9 @@ function render(data) {
     ...tasks.filter((task) => task.state === "blocked")
   ];
   const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
+  const usableSessions = sessions.filter((session) => ["reachable", "attached"].includes(session.health?.status));
   const reachableSessions = sessions.filter((session) => session.health?.status === "reachable");
+  const attachedSessions = sessions.filter((session) => session.health?.status === "attached");
   const unreachableSessions = sessions.filter((session) => session.health?.status === "unreachable");
 
   elements.goalCount.textContent = goals.length;
@@ -158,9 +160,9 @@ function render(data) {
   elements.taskCount.textContent = tasks.length;
   elements.queuedTaskCount.textContent = `${queuedTasks.length} 个待执行`;
   elements.blockedCount.textContent = blocked.length;
-  elements.sessionCount.textContent = reachableSessions.length;
-  elements.butlerSessionCount.textContent = `${butlerSessions.length} 个管家，${unreachableSessions.length} 个不可达`;
-  renderReadiness(sessions, reachableSessions, unreachableSessions);
+  elements.sessionCount.textContent = usableSessions.length;
+  elements.butlerSessionCount.textContent = `${butlerSessions.length} 个管家，${attachedSessions.length} 个已附着，${unreachableSessions.length} 个不可达`;
+  renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions);
   renderDaemon(data.daemon);
   renderGoals(goals);
   renderSessions(sessions);
@@ -176,17 +178,21 @@ function renderDaemon(daemon) {
   `;
 }
 
-function renderReadiness(sessions, reachableSessions, unreachableSessions) {
+function renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions) {
   if (sessions.length === 0) {
     elements.readinessTitle.textContent = "还没有会话";
     elements.readinessText.textContent = "先添加一个现有 Codex session/thread id，再点击检查全部会话。";
     return;
   }
-  if (reachableSessions.length > 0) {
-    elements.readinessTitle.textContent = `${reachableSessions.length} 个会话可用`;
-    elements.readinessText.textContent = unreachableSessions.length > 0
-      ? `${unreachableSessions.length} 个会话不可达；可用会话可以参与后续调度。`
-      : "当前登记的会话都能被控制平面访问。";
+  if (usableSessions.length > 0) {
+    elements.readinessTitle.textContent = `${usableSessions.length} 个会话可用`;
+    if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
+      elements.readinessText.textContent = `${attachedSessions.length} 个当前管家已附着，${unreachableSessions.length} 个会话不可达。`;
+    } else if (attachedSessions.length > 0) {
+      elements.readinessText.textContent = "当前 Codex 会话已作为管家附着，可以在这里操作 Butler。";
+    } else {
+      elements.readinessText.textContent = "transport 会话检查正常，可以参与后续调度。";
+    }
     return;
   }
   elements.readinessTitle.textContent = "没有可用会话";
@@ -277,7 +283,7 @@ function renderEvents(events) {
 }
 
 function classForState(state) {
-  if (["running", "planned", "validating", "verified", "promoted"].includes(state)) return "good";
+  if (["attached", "running", "planned", "validating", "verified", "promoted"].includes(state)) return "good";
   if (["queued", "stopped", "intake", "review"].includes(state)) return "warn";
   if (["blocked", "failed", "rework", "stale"].includes(state)) return "bad";
   return "neutral";

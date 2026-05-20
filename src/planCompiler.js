@@ -77,6 +77,7 @@ export function classifyObjective(objective) {
   const refineOnly = hasAny(text, ["docs", "readme", "runbook", "prompt", "polish", "refine", "文档", "润色", "优化说明"])
     && !hasAny(text, ["api", "cli", "server", "worker", "daemon", "test", "code", "代码"]);
   const needsAnalysis = hasAny(text, ["architecture", "migration", "refactor", "plan", "strategy", "架构", "迁移", "重构", "方案"])
+    || hasAny(text, ["product", "mature", "usable", "readiness", "产品", "成熟", "可用", "可交付", "生产级"])
     || objective.length > 120;
   return {
     reviewOnly: hasReview && !hasImplementation,

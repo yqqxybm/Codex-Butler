@@ -268,6 +268,60 @@ test("service probes every managed session", async () => {
   assert.equal(result.reachable, 2);
 });
 
+test("service registers and probes the current attached Butler session", async () => {
+  const previousThreadId = process.env.CODEX_THREAD_ID;
+  process.env.CODEX_THREAD_ID = "thread-current";
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => ({
+      async startTurn() {
+        throw new Error("attached sessions must not use app-server turns");
+      },
+      close() {}
+    })
+  });
+  try {
+    await service.registerSession({
+      threadId: "thread-current",
+      role: "worker-session",
+      label: "Imported worker"
+    });
+    const current = await service.addCurrentButlerSession({
+      label: "Current Butler"
+    });
+    assert.equal(current.source, "current-session");
+    assert.equal(current.health.status, "attached");
+
+    const probe = await service.probeSession({ sessionIdOrThreadId: "thread-current" });
+    assert.equal(probe.ok, true);
+    assert.equal(probe.mode, "current-session");
+    assert.equal(probe.sessionId, current.id);
+
+    const status = await service.status();
+    const attached = status.sessions.find((session) => session.id === current.id);
+    assert.equal(attached.health.status, "attached");
+  } finally {
+    if (previousThreadId === undefined) delete process.env.CODEX_THREAD_ID;
+    else process.env.CODEX_THREAD_ID = previousThreadId;
+  }
+});
+
+test("service requires CODEX_THREAD_ID before registering the current Butler session", async () => {
+  const previousThreadId = process.env.CODEX_THREAD_ID;
+  delete process.env.CODEX_THREAD_ID;
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+  try {
+    await assert.rejects(
+      () => service.addCurrentButlerSession(),
+      /CODEX_THREAD_ID is required/
+    );
+  } finally {
+    if (previousThreadId !== undefined) process.env.CODEX_THREAD_ID = previousThreadId;
+  }
+});
+
 test("service marks managed session unreachable when probe turn fails", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({
