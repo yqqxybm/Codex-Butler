@@ -19,6 +19,9 @@ test("MCP server exposes Butler tools and can submit a goal", async () => {
   try {
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "butler_submit_goal"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_plan_goal"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_dashboard"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_daemon_status"));
 
     const result = await client.callTool({
       name: "butler_submit_goal",
@@ -28,6 +31,27 @@ test("MCP server exposes Butler tools and can submit a goal", async () => {
     const goal = JSON.parse(text);
     assert.equal(goal.objective, "test mcp submit goal");
     assert.equal(goal.state, "intake");
+
+    const planned = await client.callTool({
+      name: "butler_plan_goal",
+      arguments: { objective: "Build an MCP dashboard" }
+    });
+    const planText = planned.content.find((item) => item.type === "text").text;
+    assert.equal(JSON.parse(planText).tasks.length, 4);
+
+    const dashboard = await client.callTool({
+      name: "butler_dashboard",
+      arguments: {}
+    });
+    const dashboardText = dashboard.content.find((item) => item.type === "text").text;
+    assert.match(JSON.parse(dashboardText).dashboard, /Codex Butler Dashboard/);
+
+    const daemon = await client.callTool({
+      name: "butler_daemon_status",
+      arguments: {}
+    });
+    const daemonText = daemon.content.find((item) => item.type === "text").text;
+    assert.equal(JSON.parse(daemonText).status, "stopped");
   } finally {
     await client.close();
   }

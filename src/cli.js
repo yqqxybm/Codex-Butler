@@ -3,6 +3,7 @@ import { EventLedger } from "./ledger.js";
 import { runCapabilityProbe } from "./capabilityProbe.js";
 import { buildWorkOrder } from "./roleContracts.js";
 import { createDefaultService } from "./butlerService.js";
+import { runDaemon } from "./daemon.js";
 
 async function main(argv) {
   const [command, ...args] = argv;
@@ -54,6 +55,13 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "plan-goal") {
+    const objective = args.join(" ");
+    if (!objective) throw new Error("usage: codex-butler plan-goal <objective>");
+    console.log(JSON.stringify(await createDefaultService().planGoal({ objective }), null, 2));
+    return 0;
+  }
+
   if (command === "create-task") {
     const [goalId, role, ...objectiveParts] = args;
     if (!goalId || !role || objectiveParts.length === 0) {
@@ -85,10 +93,13 @@ async function main(argv) {
     const separator = args.indexOf("--");
     const taskId = args[0];
     const commandArgs = separator >= 0 ? args.slice(separator + 1) : args.slice(1);
-    if (!taskId || commandArgs.length === 0) {
-      throw new Error("usage: codex-butler verify-task <task-id> -- <command> [args...]");
+    if (!taskId) {
+      throw new Error("usage: codex-butler verify-task <task-id> [-- <command> [args...]]");
     }
-    console.log(JSON.stringify(await createDefaultService().runVerifier({ taskId, command: commandArgs }), null, 2));
+    console.log(JSON.stringify(await createDefaultService().runVerifier({
+      taskId,
+      command: commandArgs.length > 0 ? commandArgs : null
+    }), null, 2));
     return 0;
   }
 
@@ -102,6 +113,36 @@ async function main(argv) {
   if (command === "status") {
     console.log(JSON.stringify(await createDefaultService().status(), null, 2));
     return 0;
+  }
+
+  if (command === "dashboard") {
+    const result = await createDefaultService().dashboard();
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : result.dashboard);
+    return 0;
+  }
+
+  if (command === "daemon") {
+    const [subcommand] = args;
+    const service = createDefaultService();
+    if (subcommand === "status") {
+      console.log(JSON.stringify(await service.daemonStatus(), null, 2));
+      return 0;
+    }
+    if (subcommand === "start") {
+      console.log(JSON.stringify(await service.startDaemon(), null, 2));
+      return 0;
+    }
+    if (subcommand === "stop") {
+      console.log(JSON.stringify(await service.stopDaemon(), null, 2));
+      return 0;
+    }
+    if (subcommand === "run") {
+      await runDaemon({
+        projectRoot: process.cwd()
+      });
+      return 0;
+    }
+    throw new Error("usage: codex-butler daemon <status|start|stop|run>");
   }
 
   throw new Error(`unknown command: ${command}`);
@@ -126,6 +167,9 @@ Commands:
   submit-goal <objective>
     Create a Butler goal.
 
+  plan-goal <objective>
+    Compile a natural-language objective into an ordered Butler goal plan.
+
   create-task <goal-id> <role> <objective>
     Create a role-owned task under a goal.
 
@@ -135,14 +179,20 @@ Commands:
   allocate-worktree <task-id>
     Create an isolated git worktree for a task.
 
-  verify-task <task-id> -- <command> [args...]
-    Run deterministic verification for a task.
+  verify-task <task-id> [-- <command> [args...]]
+    Run deterministic verification for a task. Uses the task's stored command when omitted.
 
   promote-task <task-id>
     Promote a verified task through the promotion gate.
 
   status
     Print goals, tasks, and control-plane data location.
+
+  dashboard [--json]
+    Print a human-readable dashboard, or dashboard data with --json.
+
+  daemon <status|start|stop|run>
+    Manage the long-running Butler daemon process.
 `);
 }
 

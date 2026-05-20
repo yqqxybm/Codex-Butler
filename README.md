@@ -4,7 +4,9 @@
 plans work, dispatches Codex worker sessions, validates handoffs, routes review,
 and promotes verified changes.
 
-The first vertical slice implements M0/M1:
+The local control-plane slice now implements the full roadmap through daemon
+management, planning, worker dispatch, verification, promotion, and operational
+status:
 
 - app-server JSONL transport probe,
 - Codex schema and permission capability checks,
@@ -12,7 +14,11 @@ The first vertical slice implements M0/M1:
 - append-only event ledger,
 - Goal/Task state machine,
 - role prompt and worker output contracts,
-- CLI smoke path.
+- CLI smoke path,
+- daemon start/status/stop/run management,
+- natural-language goal-to-task planning,
+- transcript-based skill-read evidence extraction,
+- human-readable dashboard output.
 
 ## Why This Exists
 
@@ -41,7 +47,10 @@ npm test
 npm run probe
 npm run probe:turn
 npm run smoke
+npm run daemon -- status
+npm run butler -- plan-goal "ship a feature"
 npm run butler -- status
+npm run butler -- dashboard
 npm run mcp
 ```
 
@@ -67,35 +76,43 @@ Implemented:
 - M6 verifier/rework state transitions.
 - M7 deterministic promotion gate for verified worktree diffs.
 - M8 status surface through CLI and MCP.
+- M9 long-running daemon process management.
+- M10 automatic multi-task planning from a natural-language goal.
+- M11 transcript-based skill-read evidence extraction.
+- M12 human-readable dashboard output beyond JSON status.
 
-Not implemented yet:
-
-- Long-running daemon process management.
-- Automatic multi-task planning from a natural language goal.
-- Full review-worker transcript evidence extraction for skill-read verification.
-- UI dashboard beyond JSON status.
-
-Those are intentionally separate phases so the control surface is testable
-before worker automation starts modifying repositories.
+This is a local deterministic control plane. It does not claim a separate GUI
+product, remote fleet deployment, or production release packaging.
 
 ## Butler Control Plane
 
 ```sh
 npm run butler -- submit-goal "ship a feature"
+npm run butler -- plan-goal "ship a feature"
 npm run butler -- create-task <goal-id> verifier "run smoke checks"
 npm run butler -- dispatch-task <task-id>
+npm run butler -- verify-task <task-id>
 npm run butler -- verify-task <task-id> -- npm test
 npm run butler -- promote-task <task-id>
 npm run butler -- status
+npm run butler -- dashboard
+npm run daemon -- start
+npm run daemon -- status
+npm run daemon -- stop
 ```
 
 The MCP server exposes the same control-plane operations as tools:
 
 - `butler_submit_goal`
+- `butler_plan_goal`
 - `butler_create_task`
 - `butler_dispatch_task`
 - `butler_allocate_worktree`
 - `butler_run_verifier`
 - `butler_promote_task`
 - `butler_status`
+- `butler_dashboard`
+- `butler_daemon_status`
+- `butler_daemon_start`
+- `butler_daemon_stop`
 - `butler_read_ledger`

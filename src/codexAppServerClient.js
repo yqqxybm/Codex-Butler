@@ -34,12 +34,12 @@ export class CodexAppServerClient {
     return result;
   }
 
-  async startEphemeralThread(cwd) {
+  async startEphemeralThread(cwd, options = {}) {
     await this.initialize();
     return this.client.request("thread/start", {
       cwd,
       approvalPolicy: "never",
-      sandbox: "read-only",
+      sandbox: options.sandbox ?? "read-only",
       ephemeral: true,
       experimentalRawEvents: false,
       persistExtendedHistory: false
@@ -51,14 +51,16 @@ export class CodexAppServerClient {
     return this.client.request("command/exec", params, params.timeoutMs ? params.timeoutMs + 5000 : 15000);
   }
 
-  async startTurn({ threadId, inputText, outputSchema, timeoutMs = 180000 }) {
+  async startTurn({ threadId, inputText, outputSchema, cwd = null, sandboxPolicy = null, timeoutMs = 180000 }) {
     await this.initialize();
+    const notificationStart = this.client.notifications.length;
     const start = await this.client.request("turn/start", {
       threadId,
       input: [{ type: "text", text: inputText, text_elements: [] }],
       outputSchema,
       approvalPolicy: "never",
-      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      cwd,
+      sandboxPolicy: sandboxPolicy ?? { type: "readOnly", networkAccess: false },
       effort: "low"
     }, timeoutMs);
     const completed = await this.client.waitForNotification(
@@ -76,7 +78,8 @@ export class CodexAppServerClient {
     return {
       start,
       completed,
-      finalText: finalAgentMessage?.text ?? null
+      finalText: finalAgentMessage?.text ?? null,
+      notifications: this.client.notifications.slice(notificationStart)
     };
   }
 

@@ -12,15 +12,31 @@ export function createMcpServer(service = createDefaultService()) {
     inputSchema: { objective: z.string().min(1) }
   }, ({ objective }) => service.submitGoal({ objective }));
 
+  registerJsonTool(server, "butler_plan_goal", {
+    description: "Compile a natural-language objective into an ordered Butler goal and role-owned tasks.",
+    inputSchema: { objective: z.string().min(1) }
+  }, ({ objective }) => service.planGoal({ objective }));
+
   registerJsonTool(server, "butler_create_task", {
     description: "Create a task owned by a specific worker role.",
     inputSchema: {
       goalId: z.string().min(1),
       role: z.enum(["iteration-worker", "review-worker", "analysis-worker", "refine-worker", "verifier", "promoter"]),
       objective: z.string().min(1),
-      ownedScope: z.string().optional()
+      ownedScope: z.string().optional(),
+      prerequisites: z.array(z.string()).optional(),
+      verificationCommand: z.array(z.string()).optional(),
+      targetTaskId: z.string().optional()
     }
-  }, ({ goalId, role, objective, ownedScope }) => service.createTask({ goalId, role, objective, ownedScope }));
+  }, ({ goalId, role, objective, ownedScope, prerequisites, verificationCommand, targetTaskId }) => service.createTask({
+    goalId,
+    role,
+    objective,
+    ownedScope,
+    prerequisites,
+    verificationCommand,
+    targetTaskId
+  }));
 
   registerJsonTool(server, "butler_dispatch_task", {
     description: "Dispatch a task to a real app-server worker turn and validate its structured handoff.",
@@ -49,6 +65,26 @@ export function createMcpServer(service = createDefaultService()) {
     description: "Read Butler goals, tasks, states, and data location.",
     inputSchema: {}
   }, () => service.status());
+
+  registerJsonTool(server, "butler_dashboard", {
+    description: "Render a human-readable Butler dashboard with active goals, tasks, and recent events.",
+    inputSchema: {}
+  }, () => service.dashboard());
+
+  registerJsonTool(server, "butler_daemon_status", {
+    description: "Read the Butler daemon process status.",
+    inputSchema: {}
+  }, () => service.daemonStatus());
+
+  registerJsonTool(server, "butler_daemon_start", {
+    description: "Start the long-running Butler daemon process.",
+    inputSchema: {}
+  }, () => service.startDaemon());
+
+  registerJsonTool(server, "butler_daemon_stop", {
+    description: "Stop the long-running Butler daemon process.",
+    inputSchema: {}
+  }, () => service.stopDaemon());
 
   registerJsonTool(server, "butler_read_ledger", {
     description: "Read append-only Butler event ledger entries.",

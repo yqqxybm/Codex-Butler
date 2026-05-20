@@ -101,12 +101,13 @@ export const WORKER_OUTPUT_SCHEMA = Object.freeze({
   }
 });
 
-export function buildWorkOrder({ role, taskId, goal, ownedScope, objective }) {
+export function buildWorkOrder({ role, taskId, goal, ownedScope, objective, targetTaskId = null }) {
   const contract = ROLE_CONTRACTS[role];
   if (!contract) throw new Error(`Unknown role: ${role}`);
   return {
     role,
     taskId,
+    targetTaskId,
     goal,
     objective,
     ownedScope,
