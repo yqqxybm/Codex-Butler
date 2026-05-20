@@ -139,6 +139,60 @@ test("service advances a planned goal through the product pipeline", async () =>
   assert.equal(tasks.promoter, "promoted");
 });
 
+test("service reports stalled goal progress when auto-advance hits rework", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  await initGitRepo(dir);
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => fakeClient({
+      status: "done",
+      evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+      risks: []
+    })
+  });
+
+  const planned = await service.planGoal({
+    objective: "Build a no-diff feature",
+    verificationCommand: [process.execPath, "-e", "process.exit(0)"]
+  });
+  const result = await service.advanceGoal({ goalId: planned.goal.id, maxSteps: 10 });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.progress.status, "stalled");
+  assert.equal(result.progress.taskState, "rework");
+  assert.match(result.progress.message, /自动推进已停止/);
+  assert.match(result.progress.details.join("\n"), /externally verified/);
+});
+
+test("service can retry a task stopped in rework", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => fakeClient({
+      status: "done",
+      evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+      risks: []
+    })
+  });
+
+  const goal = await service.submitGoal({ objective: "exercise retry path" });
+  const task = await service.createTask({
+    goalId: goal.id,
+    role: "review-worker",
+    objective: "claim review without external evidence"
+  });
+  const dispatched = await service.dispatchTask({ taskId: task.id });
+  assert.equal(dispatched.state, "rework");
+
+  const retried = await service.retryTask({ taskId: task.id });
+  assert.equal(retried.state, "queued");
+  assert.equal(retried.leaseId, null);
+  assert.equal(retried.handoff, undefined);
+
+  const events = await service.readLedger();
+  assert.equal(events.at(-1).type, "task.requeued");
+});
+
 test("verifier and promoter gate tasks target the implementation task", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({ projectRoot: dir });

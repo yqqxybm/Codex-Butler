@@ -33,7 +33,7 @@
         <section class="topbar" id="overview">
           <div>
             <p class="eyebrow">产品工作台</p>
-            <h2>输入目标，检查可用会话，然后让 Butler 推进下一步。</h2>
+            <h2>输入目标，让 Butler 规划、推进、审查并显示停住原因。</h2>
           </div>
           <div class="topbar-actions">
             <button class="button secondary" id="refreshButton" type="button">刷新</button>
@@ -57,9 +57,9 @@
           </form>
           <div class="readiness-card">
             <div>
-              <p class="eyebrow">会话可用性</p>
+              <p class="eyebrow">后台与会话</p>
               <strong id="readinessTitle">等待检查</strong>
-              <p id="readinessText">只有检查成功的会话才算可用；单纯登记不算。</p>
+              <p id="readinessText">后台负责推进目标；会话检查用于确认已登记 session 能否复用。</p>
             </div>
             <button class="button secondary on-light" id="probeAllButton" type="button">检查全部会话</button>
           </div>
@@ -82,7 +82,7 @@
             <small>目标和任务</small>
           </article>
           <article class="metric-panel accent-panel">
-            <span class="metric-label">可用会话</span>
+            <span class="metric-label">会话记录</span>
             <strong id="sessionCount">0</strong>
             <small id="butlerSessionCount">0 个管家</small>
           </article>
@@ -111,7 +111,7 @@
               <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
               <button class="button secondary on-light" type="submit">添加管家会话</button>
             </form>
-            <p class="helper-text" id="sessionHelp">添加后会出现在列表里；必须检查成功才算可用。</p>
+            <p class="helper-text" id="sessionHelp">这里管理已有 session。检查成功表示它当前可复用；失败只影响复用，不代表网页不能推进新目标。</p>
             <div class="list" id="sessionsList"></div>
           </section>
 

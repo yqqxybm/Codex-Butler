@@ -41,7 +41,10 @@ elements.plannerForm.addEventListener("submit", async (event) => {
   await runAction(mode === "plan" ? "计划已生成" : "计划已生成，并已推进第一步", () => api(path, {
     method: "POST",
     body: JSON.stringify({ objective, maxSteps: 1 })
-  }));
+  }), {
+    button: event.submitter,
+    pendingMessage: mode === "plan" ? "正在生成计划..." : "正在生成计划并推进第一步，可能需要几十秒..."
+  });
   elements.objectiveInput.value = "";
   await refresh();
 });
@@ -72,7 +75,12 @@ elements.goalsList.addEventListener("click", async (event) => {
   const maxSteps = Number(button.dataset.maxSteps ?? 1);
   await runAction(maxSteps > 1 ? "已自动推进到当前边界" : "已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
     body: JSON.stringify({ maxSteps })
-  }));
+  }), {
+    button,
+    pendingMessage: maxSteps > 1
+      ? "正在自动推进；会一直运行到完成、阻塞或需要返工。"
+      : "正在推进下一步..."
+  });
   await refresh();
 });
 
@@ -85,9 +93,13 @@ elements.taskTable.addEventListener("click", async (event) => {
     "allocate-worktree": "工作区已准备",
     dispatch: "任务已派发",
     verify: "验证已完成",
-    promote: "提升已完成"
+    promote: "提升已完成",
+    retry: "任务已重新排队"
   };
-  await runAction(labels[action] ?? "任务已更新", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`));
+  await runAction(labels[action] ?? "任务已更新", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`), {
+    button,
+    pendingMessage: action === "retry" ? "正在把任务放回待执行队列..." : "正在执行任务操作..."
+  });
   await refresh();
 });
 
@@ -115,12 +127,31 @@ async function refresh() {
   }
 }
 
-async function runAction(successMessage, fn) {
+async function runAction(successMessage, fn, options = {}) {
+  const button = options.button ?? null;
+  const previousText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "处理中...";
+  }
+  if (options.pendingMessage) showToast(options.pendingMessage, false, 30000);
   try {
-    await fn();
-    showToast(successMessage);
+    const result = await fn();
+    const stoppedMessage = stoppedResultMessage(result);
+    if (stoppedMessage) {
+      showToast(stoppedMessage, true, 9000);
+    } else {
+      showToast(successMessage);
+    }
+    return result;
   } catch (error) {
-    showToast(error.message, true);
+    showToast(error.message, true, 9000);
+    return null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText;
+    }
   }
 }
 
@@ -160,11 +191,11 @@ function render(data) {
   elements.taskCount.textContent = tasks.length;
   elements.queuedTaskCount.textContent = `${queuedTasks.length} 个待执行`;
   elements.blockedCount.textContent = blocked.length;
-  elements.sessionCount.textContent = usableSessions.length;
-  elements.butlerSessionCount.textContent = `${butlerSessions.length} 个管家，${attachedSessions.length} 个已附着，${unreachableSessions.length} 个不可达`;
-  renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions);
+  elements.sessionCount.textContent = sessions.length;
+  elements.butlerSessionCount.textContent = `${usableSessions.length} 可用，${butlerSessions.length} 个管家，${unreachableSessions.length} 个不可达`;
+  renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
-  renderGoals(goals);
+  renderGoals(goals, data.goalProgress ?? {});
   renderSessions(sessions);
   renderTasks(tasks);
   renderEvents(events);
@@ -178,10 +209,19 @@ function renderDaemon(daemon) {
   `;
 }
 
-function renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions) {
+function renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, daemon) {
+  if (daemon?.status === "running") {
+    elements.readinessTitle.textContent = "后台运行中";
+    if (sessions.length === 0) {
+      elements.readinessText.textContent = "可以输入目标开始推进；添加已有 session 只用于复用或排障。";
+    } else {
+      elements.readinessText.textContent = `已登记 ${sessions.length} 个 session，${usableSessions.length} 个当前可复用，${unreachableSessions.length} 个不可达。`;
+    }
+    return;
+  }
   if (sessions.length === 0) {
     elements.readinessTitle.textContent = "还没有会话";
-    elements.readinessText.textContent = "先添加一个现有 Codex session/thread id，再点击检查全部会话。";
+    elements.readinessText.textContent = "先启动后台；已有 session 可以登记后检查可复用性。";
     return;
   }
   if (usableSessions.length > 0) {
@@ -201,7 +241,7 @@ function renderReadiness(sessions, usableSessions, attachedSessions, unreachable
     : "已登记会话尚未检查；点击“检查全部会话”。";
 }
 
-function renderGoals(goals) {
+function renderGoals(goals, goalProgress) {
   if (goals.length === 0) {
     elements.goalsList.innerHTML = `<div class="empty-state">还没有目标。输入目标后，Butler 会生成任务并给出下一步动作。</div>`;
     return;
@@ -214,6 +254,7 @@ function renderGoals(goals) {
       </div>
       <p class="item-title">${escapeHtml(goal.objective)}</p>
       <p class="item-subtitle">${goal.history?.length ?? 0} 条状态记录</p>
+      ${renderGoalDiagnosis(goalProgress[goal.id])}
       <div class="row-actions">
         <button class="mini-button primary-mini" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">继续推进</button>
         <button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="20">自动推进</button>
@@ -257,16 +298,75 @@ function renderTasks(tasks) {
           <span class="pill">${escapeHtml(shortId(task.id))}</span>
         </div>
         <p class="item-title">${escapeHtml(task.objective)}</p>
-        <p class="item-subtitle">${task.targetTaskId ? `目标 ${shortId(task.targetTaskId)}` : "直接任务"}${task.worktreePath ? " · 工作区已准备" : ""}</p>
+        <p class="item-subtitle">${task.targetTaskId ? `目标 ${shortId(task.targetTaskId)}` : "直接任务"}${taskUsesWorktree(task) && task.worktreePath ? " · 工作区已准备" : ""}</p>
+        ${renderTaskIssue(task)}
       </div>
-      <div class="row-actions">
-        <button class="mini-button" data-action="allocate-worktree" data-task-id="${escapeHtml(task.id)}">工作区</button>
-        <button class="mini-button" data-action="dispatch" data-task-id="${escapeHtml(task.id)}">派发</button>
-        <button class="mini-button" data-action="verify" data-task-id="${escapeHtml(task.id)}">验证</button>
-        <button class="mini-button" data-action="promote" data-task-id="${escapeHtml(task.id)}">提升</button>
-      </div>
+      ${renderTaskActions(task)}
     </article>
   `).join("");
+}
+
+function renderGoalDiagnosis(progress) {
+  if (!progress) return "";
+  const tone = progress.status === "stalled" ? "bad" : progress.status === "complete" ? "good" : "warn";
+  const details = (progress.details ?? []).slice(0, 3);
+  return `
+    <div class="diagnosis ${tone}">
+      <strong>${escapeHtml(progress.message)}</strong>
+      ${details.length > 1 ? `<ul>${details.slice(1).map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>` : ""}
+    </div>
+  `;
+}
+
+function renderTaskIssue(task) {
+  if (!["rework", "blocked", "failed"].includes(task.state)) return "";
+  const details = taskIssueDetails(task).slice(0, 4);
+  if (details.length === 0) {
+    return `<div class="diagnosis bad"><strong>任务已停止，需要人工处理或重试。</strong></div>`;
+  }
+  return `
+    <div class="diagnosis bad">
+      <strong>${escapeHtml(details[0])}</strong>
+      ${details.length > 1 ? `<ul>${details.slice(1).map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>` : ""}
+    </div>
+  `;
+}
+
+function renderTaskActions(task) {
+  const buttons = [];
+  if (["rework", "blocked"].includes(task.state)) {
+    buttons.push(taskButton(task, "retry", "重试", true));
+  } else if (task.state === "queued") {
+    if (taskUsesWorktree(task) && !task.worktreePath) {
+      buttons.push(taskButton(task, "allocate-worktree", "准备工作区"));
+    }
+    if (!["verifier", "promoter"].includes(task.ownerRole)) {
+      buttons.push(taskButton(task, "dispatch", "派发"));
+    }
+    if (task.ownerRole === "verifier") {
+      buttons.push(taskButton(task, "verify", "验证", true));
+    }
+    if (task.ownerRole === "promoter") {
+      buttons.push(taskButton(task, "promote", "提升", true));
+    }
+  } else if (["validating", "review"].includes(task.state)) {
+    buttons.push(taskButton(task, "verify", "验证", true));
+  } else if (task.state === "verified") {
+    buttons.push(taskButton(task, "promote", "提升", true));
+  }
+
+  if (buttons.length === 0) {
+    return `<div class="row-actions"><span class="inline-note">由目标卡片自动推进</span></div>`;
+  }
+  return `<div class="row-actions">${buttons.join("")}</div>`;
+}
+
+function taskButton(task, action, label, primary = false) {
+  return `<button class="mini-button ${primary ? "primary-mini" : ""}" data-action="${escapeHtml(action)}" data-task-id="${escapeHtml(task.id)}">${escapeHtml(label)}</button>`;
+}
+
+function taskUsesWorktree(task) {
+  return ["iteration-worker", "refine-worker"].includes(task.ownerRole);
 }
 
 function renderEvents(events) {
@@ -298,12 +398,38 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function showToast(message, isError = false) {
+function stoppedResultMessage(result) {
+  const target = result?.advanced ?? result;
+  if (!target || target.ok !== false) return null;
+  return target.progress?.message
+    ?? target.actions?.at?.(-1)?.progress?.message
+    ?? target.actions?.at?.(-1)?.reason
+    ?? "已停止：没有可执行的下一步。";
+}
+
+function taskIssueDetails(task) {
+  const validationErrors = task.handoff?.validation?.errors ?? latestHistoryValidationErrors(task);
+  const risks = Array.isArray(task.handoff?.result?.risks) ? task.handoff.result.risks.map((risk) => `risk: ${risk}`) : [];
+  const verification = task.verification?.exitCode
+    ? [`verification command exited ${task.verification.exitCode}: ${(task.verification.command ?? []).join(" ")}`]
+    : [];
+  return [...validationErrors, ...verification, ...risks];
+}
+
+function latestHistoryValidationErrors(task) {
+  for (const event of [...(task.history ?? [])].reverse()) {
+    const errors = event.evidence?.validation?.errors;
+    if (Array.isArray(errors) && errors.length > 0) return errors;
+  }
+  return [];
+}
+
+function showToast(message, isError = false, durationMs = 2800) {
   elements.toast.textContent = message;
   elements.toast.style.borderColor = isError ? "rgba(162, 51, 45, 0.64)" : "rgba(244, 240, 232, 0.18)";
   elements.toast.classList.add("visible");
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => elements.toast.classList.remove("visible"), 2800);
+  showToast.timer = setTimeout(() => elements.toast.classList.remove("visible"), durationMs);
 }
 
 function escapeHtml(value) {

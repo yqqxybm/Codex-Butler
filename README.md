@@ -26,7 +26,7 @@ http://127.0.0.1:4177
 网页里的推荐流程：
 
 ```text
-检查全部会话 -> 输入目标 -> 生成并推进 -> 继续推进 / 自动推进
+输入目标 -> 生成并推进 -> 继续推进 / 自动推进
 ```
 
 如果你要把正在对话的这个 Codex 会话作为管家，先运行：
@@ -60,6 +60,7 @@ npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- probe-sessions
 npm run butler -- plan-goal "你的目标"
 npm run butler -- replan-goal <goal-id>
+npm run butler -- retry-task <task-id>
 npm run butler -- advance-goal <goal-id>
 npm run butler -- advance-goal <goal-id> --max-steps 20
 npm run butler -- dashboard
@@ -82,6 +83,7 @@ npm run butler -- promote-task <task-id>
 - macOS `launchd` 长期后台服务。
 - 目标规划：自然语言目标生成任务链。
 - 一键推进：按任务依赖自动选择下一步，支持推进到阻塞或完成。
+- 阻塞诊断：网页目标卡片显示停住原因，`rework/blocked` 任务可以重新排队后继续推进。
 - 会话检查：批量检查 session 是否真实可达。
 - 工作区隔离：实现类任务使用 Git worktree。
 - 验证和提升 gate：验证通过后才允许 promotion。

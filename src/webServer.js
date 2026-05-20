@@ -174,6 +174,10 @@ async function routeApi(method, url, request, response, service) {
       sendJson(response, 200, await service.promoteTask({ taskId }));
       return;
     }
+    if (action === "retry") {
+      sendJson(response, 200, await service.retryTask({ taskId }));
+      return;
+    }
   }
 
   sendJson(response, 404, { error: "Not found" });

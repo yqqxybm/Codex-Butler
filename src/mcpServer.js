@@ -76,6 +76,11 @@ export function createMcpServer(service = createDefaultService()) {
     inputSchema: { taskId: z.string().min(1) }
   }, ({ taskId }) => service.promoteTask({ taskId }));
 
+  registerJsonTool(server, "butler_retry_task", {
+    description: "Requeue a Butler task that stopped in rework or blocked state.",
+    inputSchema: { taskId: z.string().min(1) }
+  }, ({ taskId }) => service.retryTask({ taskId }));
+
   registerJsonTool(server, "butler_register_session", {
     description: "Register an existing local Codex session/thread as Butler-managed state.",
     inputSchema: {

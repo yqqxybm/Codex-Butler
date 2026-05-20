@@ -32,6 +32,9 @@ test("web server exposes one-click product actions", async () => {
     },
     async probeAllSessions() {
       return { ok: true, total: 2, reachable: 2, results: [] };
+    },
+    async retryTask({ taskId }) {
+      return { id: taskId, state: "queued" };
     }
   };
   const server = createWebServer({ service });
@@ -54,6 +57,9 @@ test("web server exposes one-click product actions", async () => {
 
     const probes = await fetchJson(`${baseUrl}/api/sessions/probe-all`, { method: "POST" });
     assert.equal(probes.reachable, 2);
+
+    const retried = await fetchJson(`${baseUrl}/api/tasks/task-web/retry`, { method: "POST" });
+    assert.equal(retried.state, "queued");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());

@@ -134,6 +134,13 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "retry-task") {
+    const [taskId] = args;
+    if (!taskId) throw new Error("usage: codex-butler retry-task <task-id>");
+    console.log(JSON.stringify(await createDefaultService().retryTask({ taskId }), null, 2));
+    return 0;
+  }
+
   if (command === "register-session") {
     const parsed = parseSessionArgs(args);
     console.log(JSON.stringify(await createDefaultService().registerSession(parsed), null, 2));
@@ -294,6 +301,9 @@ Commands:
 
   promote-task <task-id>
     Promote a verified task through the promotion gate.
+
+  retry-task <task-id>
+    Requeue a task that stopped in rework or blocked state.
 
   register-session <thread-id> [role] [--label name] [--cwd path] [--source existing-local|app-server|current-session|manual] [--notes text]
     Register an existing local Codex session/thread as Butler-managed state.

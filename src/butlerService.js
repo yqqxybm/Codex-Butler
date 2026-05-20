@@ -364,29 +364,35 @@ export class ButlerService {
       const task = tasks.find((candidate) => isRunnableTask(state, candidate));
 
       if (!task) {
+        const progress = describeGoalProgress(state, goal.id);
         actions.push({
-          action: isGoalComplete(tasks) ? "done" : "blocked",
-          ok: isGoalComplete(tasks),
-          reason: isGoalComplete(tasks)
-            ? "all goal tasks are verified or promoted"
-            : "no runnable task is ready; check blocked, rework, or unmet prerequisites"
+          action: progress.complete ? "done" : "blocked",
+          ok: progress.complete,
+          reason: progress.message,
+          taskId: progress.taskId ?? null,
+          state: progress.taskState ?? null,
+          progress
         });
         break;
       }
 
-      actions.push(await this.advanceTask(task));
+      const action = await this.advanceTask(task);
+      actions.push(action);
       await this.refreshGoalState(normalizedGoalId);
+      if (action.ok === false) break;
     }
 
     await this.refreshGoalState(normalizedGoalId);
     const status = await this.status();
     const goal = status.goals.find((item) => item.id === normalizedGoalId);
     const tasks = status.tasks.filter((task) => task.goalId === normalizedGoalId);
+    const progress = describeGoalProgress(statusToState(status), normalizedGoalId);
     return {
-      ok: actions.length > 0 && actions.every((action) => action.ok !== false),
+      ok: actions.length > 0 && actions.every((action) => action.ok !== false) && progress.status !== "stalled",
       goal,
       tasks,
-      actions
+      actions,
+      progress
     };
   }
 
@@ -608,6 +614,26 @@ export class ButlerService {
     return { ok: true, task, targetTask, result };
   }
 
+  async retryTask({ taskId }) {
+    const state = await this.state.load();
+    let task = requiredTask(state, taskId);
+    if (!["rework", "blocked"].includes(task.state)) {
+      throw new Error(`Task ${taskId} cannot be retried from state ${task.state}`);
+    }
+    const previousState = task.state;
+    task = transition(task, "queued", { source: "manual-retry", previousState });
+    task.leaseId = null;
+    delete task.threadId;
+    delete task.turnId;
+    delete task.handoff;
+    delete task.verification;
+    state.tasks[taskId] = task;
+    await this.state.save(state);
+    await this.ledger.append("task.requeued", { taskId, previousState });
+    await this.refreshGoalState(task.goalId);
+    return task;
+  }
+
   async status() {
     const state = await this.state.load();
     return {
@@ -629,6 +655,10 @@ export class ButlerService {
     return {
       dashboard: renderDashboard(status, events),
       status,
+      goalProgress: Object.fromEntries(status.goals.map((goal) => [
+        goal.id,
+        describeGoalProgress(statusToState(status), goal.id)
+      ])),
       recentEvents: events.slice(-8)
     };
   }
@@ -698,6 +728,120 @@ function isPrerequisiteMet(state, task, prerequisiteId) {
 
 function isGoalComplete(tasks) {
   return tasks.length > 0 && tasks.every((task) => ["verified", "promoted"].includes(task.state));
+}
+
+function describeGoalProgress(state, goalId) {
+  const goal = requiredGoal(state, goalId);
+  const tasks = orderedGoalTasks(state, goal.id);
+  if (isGoalComplete(tasks)) {
+    return {
+      status: "complete",
+      complete: true,
+      message: "目标已完成：全部任务都已验证或提升。",
+      taskId: null,
+      taskState: null,
+      ownerRole: null,
+      details: []
+    };
+  }
+
+  const runnable = tasks.find((task) => isRunnableTask(state, task));
+  if (runnable) {
+    return {
+      status: "runnable",
+      complete: false,
+      message: `下一步可推进：${runnable.ownerRole} / ${shortTaskId(runnable.id)}。`,
+      taskId: runnable.id,
+      taskState: runnable.state,
+      ownerRole: runnable.ownerRole,
+      details: []
+    };
+  }
+
+  const stalled = tasks.find((task) => ["rework", "blocked", "failed"].includes(task.state));
+  if (stalled) {
+    const details = taskIssueDetails(stalled);
+    return {
+      status: "stalled",
+      complete: false,
+      message: `自动推进已停止：${stalled.ownerRole} / ${shortTaskId(stalled.id)} 处于 ${stalled.state}${details[0] ? `，${details[0]}` : "。"}`,
+      taskId: stalled.id,
+      taskState: stalled.state,
+      ownerRole: stalled.ownerRole,
+      details
+    };
+  }
+
+  const waiting = tasks.find((task) => task.state === "queued");
+  if (waiting) {
+    const unmetPrerequisites = (waiting.prerequisites ?? [])
+      .filter((id) => !isPrerequisiteMet(state, waiting, id));
+    return {
+      status: "waiting",
+      complete: false,
+      message: `当前没有可推进任务：${waiting.ownerRole} / ${shortTaskId(waiting.id)} 等待前置任务 ${unmetPrerequisites.map(shortTaskId).join(", ") || "完成"}。`,
+      taskId: waiting.id,
+      taskState: waiting.state,
+      ownerRole: waiting.ownerRole,
+      unmetPrerequisites,
+      details: []
+    };
+  }
+
+  const active = tasks.find((task) => ["leased", "dispatched", "awaiting_result", "validating", "review"].includes(task.state));
+  if (active) {
+    return {
+      status: "active",
+      complete: false,
+      message: `任务正在处理中：${active.ownerRole} / ${shortTaskId(active.id)} 当前是 ${active.state}。`,
+      taskId: active.id,
+      taskState: active.state,
+      ownerRole: active.ownerRole,
+      details: []
+    };
+  }
+
+  return {
+    status: "empty",
+    complete: false,
+    message: "目标下没有可推进任务。",
+    taskId: null,
+    taskState: null,
+    ownerRole: null,
+    details: []
+  };
+}
+
+function taskIssueDetails(task) {
+  const validationErrors = task.handoff?.validation?.errors
+    ?? latestHistoryValidationErrors(task)
+    ?? [];
+  const risks = Array.isArray(task.handoff?.result?.risks) ? task.handoff.result.risks : [];
+  const details = [...validationErrors];
+  if (task.verification?.exitCode && task.verification.exitCode !== 0) {
+    details.push(`verification command exited ${task.verification.exitCode}: ${task.verification.command?.join(" ") ?? "unknown command"}`);
+  }
+  for (const risk of risks) details.push(`risk: ${risk}`);
+  return details;
+}
+
+function latestHistoryValidationErrors(task) {
+  for (const event of [...(task.history ?? [])].reverse()) {
+    const errors = event.evidence?.validation?.errors;
+    if (Array.isArray(errors) && errors.length > 0) return errors;
+  }
+  return [];
+}
+
+function statusToState(status) {
+  return {
+    goals: Object.fromEntries((status.goals ?? []).map((goal) => [goal.id, goal])),
+    tasks: Object.fromEntries((status.tasks ?? []).map((task) => [task.id, task]))
+  };
+}
+
+function shortTaskId(id) {
+  return String(id).replace(/^task-/, "").slice(0, 8);
 }
 
 function desiredGoalState(tasks) {
