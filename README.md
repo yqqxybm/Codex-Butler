@@ -1,45 +1,27 @@
 # codex-butler
 
-`codex-butler` is a deterministic control plane for a Butler Codex session that
-plans work, dispatches Codex worker sessions, validates handoffs, routes review,
-and promotes verified changes.
+`codex-butler` 是一个本地确定性控制平面，用来让一个 Butler Codex 会话规划任务、
+调度其他 Codex worker 会话、校验交付、路由 review，并且只把验证通过的改动提升到
+主工作区。
 
-The local control-plane slice now implements the full roadmap through daemon
-management, planning, worker dispatch, verification, promotion, and operational
-status:
-
-- app-server JSONL transport probe,
-- Codex schema and permission capability checks,
-- read-only sandbox negative test,
-- append-only event ledger,
-- Goal/Task state machine,
-- role prompt and worker output contracts,
-- CLI smoke path,
-- daemon start/status/stop/run management,
-- natural-language goal-to-task planning,
-- transcript-based skill-read evidence extraction,
-- human-readable dashboard output.
-
-## Why This Exists
-
-The product goal is not "one long prompt". The goal is a controlled multi-session
-system:
+这个项目的目标不是写一段很长的 prompt，而是把多会话协作拆成可验证、可恢复、可审计
+的流程：
 
 ```text
 user -> Butler Codex session -> codex-butler control plane
      -> worker sessions / review sessions / verifier / promoter
 ```
 
-The Butler session decides and coordinates. The deterministic control plane owns
-side effects, state, evidence, and promotion.
+Butler 会话负责判断和调度；确定性的 service 负责状态、ledger、证据、worktree、
+验证和 promotion。
 
-## Requirements
+## 运行要求
 
-- Node.js 22 or newer.
-- Codex CLI with `app-server` support.
-- A local Codex account/config capable of starting app-server.
+- Node.js 22 或更新版本。
+- Codex CLI 支持 `app-server`。
+- 本机 Codex 账号和配置可以启动 `app-server`。
 
-## Commands
+## 常用命令
 
 ```sh
 npm run check
@@ -57,37 +39,38 @@ npm run web
 npm run mcp
 ```
 
-`npm run probe` starts a local `codex app-server --listen stdio://` subprocess,
-initializes JSON-RPC, starts an ephemeral read-only thread, runs a safe command,
-and verifies that a read-only sandbox blocks file creation.
+`npm run probe` 会启动本地 `codex app-server --listen stdio://` 子进程，初始化
+JSON-RPC，创建临时 read-only thread，运行安全命令，并验证 read-only sandbox 会阻止
+文件写入。
 
-`npm run probe:turn` additionally starts a real app-server `turn/start` with an
-`outputSchema` and verifies the final model response. It is intentionally not
-part of `npm run smoke` because it uses the model.
+`npm run probe:turn` 会额外启动一次真实的 app-server `turn/start`，带
+`outputSchema` 校验最终模型响应。它会消耗模型调用，所以没有放进便宜的默认
+`npm run smoke`。
 
-## Current Scope
+## 当前已实现范围
 
-Implemented:
+- M0 app-server transport 与权限探针。
+- `turn/start + outputSchema` 的真实 worker-turn 探针。
+- M1 ledger、state machine、role handoff 的确定性契约。
+- M2 通过 CLI/service API 暴露的 `codex-butlerd` service core。
+- M3 stdio MCP server 与 Butler tools。
+- M4 基于 app-server `turn/start` 的 worker dispatch。
+- M5 为任务分配隔离 git worktree。
+- M6 verifier / rework 状态流转。
+- M7 对 verified worktree diff 的确定性 promotion gate。
+- M8 CLI 和 MCP 的 status surface。
+- M9 长期运行 daemon process 管理。
+- M10 从自然语言 goal 自动生成多任务计划。
+- M11 从 transcript 中提取 skill-read 证据。
+- M12 人类可读 dashboard。
+- 本地 Web Console，用于查看 goal/task/event 并触发 daemon、dispatch、verify、
+  promote 等操作。
+- macOS `launchd` 长期服务，让 daemon 和 Web Console 在当前终端退出后继续运行。
 
-- M0 transport and permission spike.
-- Explicit worker-turn probe through `turn/start + outputSchema`.
-- M1 deterministic contracts for ledger, state, and role handoffs.
-- M2 persistent `codex-butlerd` service core through CLI/service APIs.
-- M3 MCP stdio server with Butler tools.
-- M4 worker dispatch over app-server `turn/start`.
-- M5 isolated git worktree allocation.
-- M6 verifier/rework state transitions.
-- M7 deterministic promotion gate for verified worktree diffs.
-- M8 status surface through CLI and MCP.
-- M9 long-running daemon process management.
-- M10 automatic multi-task planning from a natural-language goal.
-- M11 transcript-based skill-read evidence extraction.
-- M12 human-readable dashboard output beyond JSON status.
+这是本地确定性控制平面。它目前不声称已经实现远端集群部署、原生桌面 GUI 或正式托管
+发布包。
 
-This is a local deterministic control plane. It does not claim a separate GUI
-product, remote fleet deployment, or production release packaging.
-
-## Butler Control Plane
+## Butler 控制平面
 
 ```sh
 npm run butler -- submit-goal "ship a feature"
@@ -106,7 +89,7 @@ npm run web -- --port 4177
 npm run launchd -- install
 ```
 
-The MCP server exposes the same control-plane operations as tools:
+MCP server 暴露同一套控制平面能力：
 
 - `butler_submit_goal`
 - `butler_plan_goal`
@@ -128,27 +111,27 @@ The MCP server exposes the same control-plane operations as tools:
 npm run web -- --host 127.0.0.1 --port 4177
 ```
 
-Open `http://127.0.0.1:4177` to use the local web console. The console is bound
-to localhost by default and exposes the same local control-plane actions as the
-CLI: plan goals, inspect tasks and events, manage the daemon, allocate
-worktrees, dispatch tasks, run verification, and promote verified work.
+打开 `http://127.0.0.1:4177` 使用本地 Web Console。默认只绑定
+`127.0.0.1`，提供和 CLI 相同的本地控制平面操作：规划 goal、查看 task/event、
+管理 daemon、分配 worktree、dispatch task、运行 verification、promotion verified
+work。
 
-## Persistent Local Service
+## 长期本地服务
 
-Use the macOS `launchd` service when the Butler should stay available after the
-current terminal or Codex turn ends:
+需要让 Butler 在当前终端或当前 Codex turn 结束后继续可用时，使用 macOS `launchd`
+服务：
 
 ```sh
 npm run launchd -- install
 npm run launchd -- status
 ```
 
-This installs and starts two user LaunchAgents:
+这会安装并启动两个用户级 LaunchAgent：
 
-- `com.codex-butler.daemon`: foreground Butler daemon supervised by `launchd`.
-- `com.codex-butler.web`: local web console at `http://127.0.0.1:4177`.
+- `com.codex-butler.daemon`：由 `launchd` 监督的 Butler daemon。
+- `com.codex-butler.web`：本地 Web Console，默认地址 `http://127.0.0.1:4177`。
 
-Operational commands:
+常用运维命令：
 
 ```sh
 npm run launchd -- restart
@@ -157,5 +140,4 @@ npm run launchd -- uninstall
 npm run launchd -- install --target web --host 127.0.0.1 --port 4178
 ```
 
-The plist files live in `~/Library/LaunchAgents/`. Logs are written under
-`.codex-butler/logs/`.
+plist 文件位于 `~/Library/LaunchAgents/`。日志写入 `.codex-butler/logs/`。

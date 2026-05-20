@@ -1,6 +1,6 @@
 # Architecture
 
-## Target Shape
+## 目标形态
 
 ```text
 User
@@ -11,143 +11,141 @@ User
   -> review / verifier / promotion gates
 ```
 
-## Principles
+## 设计原则
 
-1. Butler is a controller, not a direct executor.
-2. Worker output is untrusted until validated by the service.
-3. The main workspace is modified only by a deterministic promotion gate.
-4. `codex exec` may test protocol contracts, but true product behavior requires
-   app-server threads.
-5. Evidence levels are explicit: `declared`, `prompt-constrained`,
-   `transcript-supported`, and `externally-verified`.
+1. Butler 是 controller，不是直接 executor。
+2. worker 输出在 service 校验前一律不可信。
+3. main workspace 只能由确定性的 promotion gate 修改。
+4. `codex exec` 可以测试协议契约，但真实产品行为必须基于 app-server threads。
+5. 证据等级必须显式区分：`declared`、`prompt-constrained`、
+   `transcript-supported`、`externally-verified`。
 
-## Components
+## 组件
 
 ### App Server Client
 
-Uses `codex app-server --listen stdio://` with newline-delimited JSON-RPC
-messages. The wire format omits the `jsonrpc` field, matching Codex app-server
-documentation.
+使用 `codex app-server --listen stdio://` 和 newline-delimited JSON-RPC 消息通信。
+wire format 不包含 `jsonrpc` 字段，和 Codex app-server 文档保持一致。
 
-Current implementation validates:
+当前实现会验证：
 
-- initialize / initialized handshake,
-- ephemeral thread creation,
-- real `turn/start` with `outputSchema` when `probe:turn` is requested,
-- standalone command execution,
-- read-only sandbox denial.
+- `initialize / initialized` handshake；
+- ephemeral thread creation；
+- 请求 `probe:turn` 时运行真实 `turn/start + outputSchema`；
+- standalone command execution；
+- read-only sandbox denial。
 
 ### Capability Probe
 
-Checks the local Codex CLI, app-server daemon metadata, generated schema bundle,
-global config risks, and runtime sandbox behavior.
+检查本机 Codex CLI、app-server daemon metadata、生成的 schema bundle、全局配置风险，
+以及运行时 sandbox 行为。
 
 ### Butler Service
 
-`ButlerService` is the deterministic control-plane core. It owns goal/task
-state, append-only ledger writes, natural-language plan compilation, worker
-dispatch, worktree allocation, verification, promotion, dashboard rendering,
-daemon status, and operational status. The model-facing Butler session should
-call this service through MCP tools instead of writing project files directly.
+`ButlerService` 是确定性控制平面核心。它拥有 goal/task state、append-only ledger、
+natural-language plan compilation、worker dispatch、worktree allocation、
+verification、promotion、dashboard rendering、daemon status 和 operational status。
+面向模型的 Butler session 应该通过 MCP tools 调用这个 service，而不是直接写项目文件。
 
 ### Daemon Management
 
-`src/daemon.js` manages the local `codex-butlerd` process with
-start/status/stop/run semantics. The daemon records PID and heartbeat state
-under `.codex-butler/daemon.json`; stale PID detection is deterministic and
-tested.
+`src/daemon.js` 管理本地 `codex-butlerd` 进程，支持 start/status/stop/run。
+daemon 会在 `.codex-butler/daemon.json` 记录 PID 和 heartbeat；stale PID 检测是确定性
+逻辑，并且有测试覆盖。
+
+### Persistent Service
+
+`src/launchd.js` 管理 macOS 用户级 LaunchAgent。默认安装两个长期服务：
+
+- `com.codex-butler.daemon`：前台运行 `node src/cli.js daemon run`，由 `launchd`
+  监督和重启。
+- `com.codex-butler.web`：运行本地 Web Console，默认绑定 `127.0.0.1:4177`。
+
+这些服务使用固定 plist 路径、项目内日志路径和稳定 PATH，避免把一次性 shell 环境变成
+长期配置。
 
 ### Plan Compiler
 
-`src/planCompiler.js` turns a natural-language goal into ordered role-owned
-tasks. It keeps review-only requests out of implementation roles, adds verifier
-and promoter tasks for implementation work, and records prerequisites so the
-Butler session has an explicit execution graph. Gate tasks carry `targetTaskId`
-links back to the implementation or review task they verify or promote.
+`src/planCompiler.js` 把自然语言 goal 转成有顺序、带 role ownership 的 tasks。它会把
+review-only 请求排除在 implementation roles 之外，为 implementation work 添加
+verifier 和 promoter tasks，并记录 prerequisites，让 Butler session 拥有明确的执行图。
+gate tasks 会带 `targetTaskId`，指向它正在 review、verify 或 promote 的上游 task。
 
 ### Transcript Evidence
 
-`src/evidence.js` scans app-server turn notifications for successful command or
-tool records that read the required skill's `SKILL.md`. Worker self-report can
-remain `declared` or `transcript-supported`, but only external transcript
-evidence can upgrade a required skill read to `externally-verified`.
+`src/evidence.js` 扫描 app-server turn notifications，寻找成功读取 required skill
+`SKILL.md` 的 command 或 tool records。worker 自报可以保持 `declared` 或
+`transcript-supported`，但只有外部 transcript 证据可以把 required skill read 升级为
+`externally-verified`。
 
 ### MCP Server
 
-`src/mcpServer.js` uses the official Model Context Protocol SDK and exposes
-Butler tools over stdio. This is the integration surface for a Butler Codex
-session.
+`src/mcpServer.js` 使用官方 Model Context Protocol SDK，通过 stdio 暴露 Butler tools。
+这是 Butler Codex session 接入控制平面的主要接口。
 
 ### Dashboard
 
-`src/dashboard.js` renders a human-readable operational dashboard with goal
-counts, task states, active work, and recent ledger events. CLI and MCP expose
-the same status surface.
+`src/dashboard.js` 渲染人类可读 operational dashboard，包含 goal counts、task states、
+active work 和 recent ledger events。CLI 和 MCP 暴露同一套 status surface。
 
 ### Web Console
 
-`src/webServer.js` serves a localhost-only web console and JSON API over Node's
-built-in HTTP server. The UI is static HTML/CSS/JavaScript under `web/` and
-calls the same `ButlerService` methods as CLI and MCP. The web layer is a local
-operator surface; it does not bypass service-side state transitions, worktree
-allocation, verifier gates, or promotion rules.
+`src/webServer.js` 使用 Node 内置 HTTP server 提供 localhost-only Web Console 和 JSON
+API。UI 是 `web/` 下的静态 HTML/CSS/JavaScript，调用的仍然是和 CLI/MCP 相同的
+`ButlerService` 方法。Web layer 只是本地 operator surface，不会绕过 service-side
+state transitions、worktree allocation、verifier gates 或 promotion rules。
 
 ### Ledger
 
-Append-only JSONL events. Each event has a stable event id, timestamp, type, and
-payload. The ledger is the recovery and audit source for the Butler control
-plane.
+ledger 是 append-only JSONL events。每个 event 都包含稳定 event id、timestamp、type
+和 payload。ledger 是 Butler control plane 的恢复和审计来源。
 
 ### State Machine
 
-Goal states:
+Goal states：
 
 ```text
 intake -> planned -> running -> reviewing -> promoting -> done
 ```
 
-Blocked and failed states are terminal until a new event reopens work.
+blocked 和 failed states 是 terminal，直到新 event 重新打开工作。
 
-Task states:
+Task states：
 
 ```text
 queued -> leased -> dispatched -> awaiting_result -> validating
         -> review -> verified -> promoted
 ```
 
-Rework loops return from `review` or `validating` to `queued`.
+rework loop 会从 `review` 或 `validating` 回到 `queued`。
 
 ### Worktrees And Promotion
 
-Implementation tasks can receive isolated git worktrees under
-`.codex-butler/worktrees/`. Promotion requires a verified task and a clean main
-workspace. The gate applies the task worktree diff deterministically with
-`git apply`, including staged and untracked files; it does not let the model
-write the main workspace directly.
+implementation tasks 可以在 `.codex-butler/worktrees/` 下获得隔离 git worktree。
+promotion 需要 task 已 verified，并且 main workspace 干净。gate 会用 `git apply`
+确定性应用 task worktree diff，包括 staged 和 untracked files；模型不能直接写 main
+workspace。
 
 ### Role Contracts
 
-Every worker receives a role contract:
+每个 worker 都会收到 role contract：
 
-- role,
-- required skill,
-- owned scope,
-- forbidden actions,
-- expected output schema,
-- evidence requirements.
+- role；
+- required skill；
+- owned scope；
+- forbidden actions；
+- expected output schema；
+- evidence requirements。
 
-Workers cannot ask the user directly, write the main workspace, promote changes,
-or claim unverified success.
+worker 不能直接问用户、不能写 main workspace、不能 promote changes，也不能声称未验证的
+成功。
 
-Worker turns are read-only by default. If a task has an allocated worktree, the
-turn runs in `workspaceWrite` sandbox mode with `writableRoots` restricted to
-that worktree.
+worker turns 默认 read-only。如果 task 已分配 worktree，turn 会以 `workspaceWrite`
+sandbox mode 运行，并把 `writableRoots` 限制到该 worktree。
 
-## Completion Boundary
+## 完成边界
 
-The current repository implements the local deterministic Butler control plane:
-transport probes, daemon management, planning, MCP tools, dispatch, transcript
-evidence extraction, worktree allocation, verification, promotion, dashboard,
-local web console, tests, and runbook. Remote deployment, a native desktop GUI,
-and hosted release packaging are outside this repository's current
-local-control-plane boundary.
+当前仓库实现的是本地确定性 Butler control plane：transport probes、daemon
+management、planning、MCP tools、dispatch、transcript evidence extraction、worktree
+allocation、verification、promotion、dashboard、本地 Web Console、macOS launchd 长期
+服务、测试和 runbook。远端部署、原生桌面 GUI、托管发布包不在当前本地控制平面边界内。

@@ -1,38 +1,33 @@
 # AGENTS.md
 
-## Project Intent
+## 项目意图
 
-This project builds a deterministic control plane that lets one Butler Codex
-session coordinate other Codex worker sessions without letting workers write the
-main workspace, ask the user directly, or claim unverified completion.
+本项目构建一个确定性控制平面，让一个 Butler Codex session 协调其他 Codex worker
+sessions，同时避免 worker 直接写 main workspace、直接向用户提问，或声称未验证的完成。
 
-## Local Rules
+## 本地规则
 
-- Keep the Butler/service boundary explicit. The model may judge and route, but
-  deterministic service code owns ledger, state transitions, workspace
-  allocation, verification, and promotion.
-- Do not treat `codex exec` as the product session transport. It is only a
-  protocol or CI harness.
-- Any claim about app-server capability must be backed by `npm run probe` or a
-  more specific command.
-- Any claim about worker-turn capability must be backed by `npm run probe:turn`.
-- Any claim about MCP tool loading must be backed by the MCP protocol test or a
-  real Codex MCP load.
-- Any claim about daemon, planning, transcript evidence, or dashboard behavior
-  must be backed by the corresponding unit test plus a CLI or MCP smoke command
-  when practical.
-- Worker prompts must include role, required skill, owned scope, forbidden
-  actions, and output schema.
-- Do not add dependencies unless they remove real implementation risk.
+- 保持 Butler/service 边界清楚。模型可以判断和路由，但 ledger、state transitions、
+  workspace allocation、verification、promotion 必须由 deterministic service code
+  负责。
+- 不要把 `codex exec` 当成产品 session transport。它只用于 protocol 或 CI harness。
+- 任何 app-server capability 声明都必须由 `npm run probe` 或更具体的命令支撑。
+- 任何 worker-turn capability 声明都必须由 `npm run probe:turn` 支撑。
+- 任何 MCP tool loading 声明都必须由 MCP protocol test 或真实 Codex MCP load 支撑。
+- 任何 daemon、planning、transcript evidence、dashboard 行为声明，都必须由对应单测
+  加 CLI 或 MCP smoke 命令支撑；只在不实际可行时说明原因。
+- worker prompt 必须包含 role、required skill、owned scope、forbidden actions 和
+  output schema。
+- 不要增加依赖，除非它明确降低真实实现风险。
 
-## Verification
+## 验证
 
-- Syntax: `npm run check`
-- Unit tests: `npm test`
-- Local Codex capability probe: `npm run probe`
-- Worker-turn probe: `npm run probe:turn`
-- Full smoke: `npm run smoke`
-- Daemon status smoke: `npm run daemon -- status`
-- Dashboard smoke: `npm run butler -- dashboard`
-- Web console smoke: `npm run web -- --port 4177`
-- Persistent service smoke: `npm run launchd -- status`
+- Syntax：`npm run check`
+- Unit tests：`npm test`
+- Local Codex capability probe：`npm run probe`
+- Worker-turn probe：`npm run probe:turn`
+- Full smoke：`npm run smoke`
+- Daemon status smoke：`npm run daemon -- status`
+- Dashboard smoke：`npm run butler -- dashboard`
+- Web console smoke：`npm run web -- --port 4177`
+- Persistent service smoke：`npm run launchd -- status`

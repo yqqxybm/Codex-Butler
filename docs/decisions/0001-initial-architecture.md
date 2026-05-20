@@ -1,32 +1,30 @@
-# 0001 Initial Architecture
+# 0001 初始架构
 
-## Status
+## 状态
 
-Accepted.
+Accepted。
 
-## Context
+## 背景
 
-The target product is a Codex session orchestration system. A user should talk to
-one Butler Codex session, while the Butler coordinates specialized worker
-sessions, validates results, routes review, and promotes only verified work.
+目标产品是一个 Codex session orchestration system。用户只需要和一个 Butler Codex
+session 交流；Butler 负责协调专门的 worker sessions、校验结果、路由 review，并且只
+promote 已验证的工作。
 
-Prompt-only orchestration is insufficient because the local default Codex
-configuration may allow broad filesystem access. The system needs deterministic
-service boundaries.
+纯 prompt orchestration 不够可靠，因为本机默认 Codex 配置可能允许很宽的文件系统访问。
+系统需要确定性的 service boundary，不能只依赖 worker 自报和 prompt 约束。
 
-## Decision
+## 决策
 
-Build `codex-butler` as a deterministic control plane:
+把 `codex-butler` 做成确定性控制平面：
 
-- use app-server threads as the true session transport,
-- keep `codex exec` limited to protocol harnesses,
-- represent every goal and task with explicit state,
-- record all side-effect decisions in an append-only ledger,
-- require role contracts and structured worker outputs,
-- perform verification and promotion outside worker self-reporting.
+- 使用 app-server threads 作为真实 session transport；
+- 把 `codex exec` 限制为协议 harness；
+- 每个 goal 和 task 都有显式 state；
+- 所有 side-effect decisions 写入 append-only ledger；
+- 要求 role contracts 和 structured worker outputs；
+- verification 和 promotion 在 worker self-reporting 之外完成。
 
-## Consequences
+## 结果
 
-This adds implementation work before full automation, but it prevents the core
-failure mode: a worker claiming completion or deep review without externally
-verified evidence.
+这会在全自动化之前增加一些实现工作，但它能避免核心失败模式：worker 在没有外部证据的
+情况下声称完成、声称 deep review，或直接污染 main workspace。

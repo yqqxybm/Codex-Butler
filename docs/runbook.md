@@ -1,26 +1,27 @@
 # Runbook
 
-## Local Smoke
+这份 runbook 面向本机操作和故障处理。命令保持英文，说明和判断标准使用中文。
+
+## 本地 Smoke
 
 ```sh
 npm run smoke
 ```
 
-Expected result:
+期望结果：
 
-- syntax check passes,
-- unit tests pass,
-- app-server probe reports `ok: true`.
+- 语法检查通过；
+- 单元测试通过；
+- app-server probe 返回 `ok: true`。
 
-## Capability Probe Only
+## 只跑 Capability Probe
 
 ```sh
 npm run probe
 ```
 
-The probe is safe. It creates only ephemeral app-server state and attempts a
-read-only sandbox write to a temporary path. The expected result is that the
-write is denied.
+probe 是安全的：它只创建临时 app-server 状态，并尝试在临时路径做一次 read-only
+sandbox 写入。期望结果是写入被拒绝。
 
 ## Worker Turn Probe
 
@@ -28,9 +29,9 @@ write is denied.
 npm run probe:turn
 ```
 
-This performs the normal capability probe and additionally starts a real
-`turn/start` with an `outputSchema`. It uses the model, so keep it out of cheap
-local smoke unless the worker-session path changed.
+这个命令会在普通 capability probe 之外，额外启动一次真实 `turn/start`，并使用
+`outputSchema` 校验模型响应。它会消耗模型调用；只有 worker-session 路径变更时才需要
+跑，不放入便宜的日常 smoke。
 
 ## Butler CLI
 
@@ -42,8 +43,7 @@ npm run butler -- status
 npm run butler -- dashboard
 ```
 
-State and ledger files are stored under `.codex-butler/`, which is intentionally
-ignored by git.
+状态和 ledger 文件存放在 `.codex-butler/`，该目录故意被 git 忽略。
 
 ## Butler Daemon
 
@@ -54,9 +54,9 @@ npm run daemon -- stop
 npm run daemon -- run
 ```
 
-`start` launches a detached local `codex-butlerd` worker. `run` keeps the
-daemon in the foreground for process managers. Status is recorded in
-`.codex-butler/daemon.json` with PID and heartbeat fields.
+`start` 会启动一个 detached 的本地 `codex-butlerd` worker。`run` 让 daemon 在前台
+运行，适合交给进程管理器。daemon 的 PID 和 heartbeat 记录在
+`.codex-butler/daemon.json`。
 
 ## MCP Server
 
@@ -64,9 +64,9 @@ daemon in the foreground for process managers. Status is recorded in
 npm run mcp
 ```
 
-Use this command as the stdio MCP server entrypoint for Butler sessions. The
-server exposes goal, task, dispatch, worktree, verifier, promotion, status, and
-ledger tools, plus planning, dashboard, and daemon management tools.
+这个命令是 Butler session 使用的 stdio MCP server 入口。server 暴露 goal、task、
+dispatch、worktree、verifier、promotion、status、ledger、planning、dashboard 和
+daemon 管理工具。
 
 ## Web Console
 
@@ -74,27 +74,27 @@ ledger tools, plus planning, dashboard, and daemon management tools.
 npm run web -- --host 127.0.0.1 --port 4177
 ```
 
-Open `http://127.0.0.1:4177`. The web console is a local operator UI for goal
-planning, daemon control, task action buttons, status metrics, and recent ledger
-events. It binds to localhost by default.
+打开 `http://127.0.0.1:4177`。Web Console 是本地 operator UI，用于 goal planning、
+daemon control、task action、status metrics 和 recent ledger events。默认只绑定
+localhost。
 
-## Persistent macOS Service
+## macOS 长期服务
 
-Use `launchd` for long-lived local operation. This is the preferred way to keep
-the Butler daemon and web console alive outside the current shell or Codex turn.
+长期运行时使用 `launchd`。这是让 Butler daemon 和 Web Console 脱离当前 shell /
+当前 Codex turn 持续运行的推荐方式。
 
-Install and start both services:
+安装并启动两个服务：
 
 ```sh
 npm run launchd -- install
 ```
 
-Default services:
+默认服务：
 
-- `com.codex-butler.daemon` runs `node src/cli.js daemon run`.
-- `com.codex-butler.web` runs `node src/cli.js web --host 127.0.0.1 --port 4177`.
+- `com.codex-butler.daemon` 运行 `node src/cli.js daemon run`。
+- `com.codex-butler.web` 运行 `node src/cli.js web --host 127.0.0.1 --port 4177`。
 
-Status and health checks:
+状态和健康检查：
 
 ```sh
 npm run launchd -- status
@@ -102,7 +102,7 @@ npm run daemon -- status
 curl -fsS http://127.0.0.1:4177/api/dashboard
 ```
 
-Logs:
+日志：
 
 ```sh
 npm run launchd -- logs
@@ -112,7 +112,7 @@ tail -f .codex-butler/logs/codex-butler-daemon.out.log
 tail -f .codex-butler/logs/codex-butler-daemon.err.log
 ```
 
-Restart, change port, or remove the services:
+重启、改端口、卸载：
 
 ```sh
 npm run launchd -- restart
@@ -120,72 +120,69 @@ npm run launchd -- install --target web --host 127.0.0.1 --port 4178
 npm run launchd -- uninstall
 ```
 
-The LaunchAgent plist files are stored in `~/Library/LaunchAgents/`. Removing
-the services does not delete `.codex-butler/` state, ledger, worktrees, or logs.
+LaunchAgent plist 文件存放在 `~/Library/LaunchAgents/`。卸载服务不会删除
+`.codex-butler/` 里的状态、ledger、worktrees 或 logs。
 
-## Planning And Dashboard
+## Planning 和 Dashboard
 
 ```sh
 npm run butler -- plan-goal "Build a CLI dashboard and tests"
 npm run butler -- dashboard
 ```
 
-`plan-goal` creates one goal and ordered role-owned tasks. Implementation goals
-produce iteration, review, verifier, and promoter tasks. Review-only goals
-produce review and verifier tasks. Later tasks carry prerequisites and gate
-tasks carry `targetTaskId`, so the Butler session can tell which prior task is
-being reviewed, verified, or promoted.
+`plan-goal` 会创建一个 goal 和一组有顺序、带 role ownership 的 tasks。
+implementation goal 会生成 iteration、review、verifier、promoter tasks。
+review-only goal 只生成 review 和 verifier tasks。后续 gate task 会携带
+`targetTaskId`，让 Butler session 明确知道它正在 review、verify 或 promote 哪个上游
+task。
 
 ## Transcript Evidence
 
-Worker handoff validation reads app-server turn notifications. A required skill
-is accepted as `externally-verified` only when the transcript contains a
-successful command/tool record that references that skill's `SKILL.md`. Model
-claims such as "I read the skill" are not enough.
+worker handoff validation 会读取 app-server turn notifications。只有 transcript 中存在
+成功的 command/tool record，并且该 record 指向所需 skill 的 `SKILL.md`，required
+skill 才会被接受为 `externally-verified`。模型自己说“我读了 skill”不算外部验证。
 
-## Common Failures
+## 常见故障
 
-### `codex` Not Found
+### 找不到 `codex`
 
-Install or expose the Codex CLI on `PATH`.
+安装 Codex CLI，或把 Codex CLI 所在目录加入 `PATH`。
 
 ### `initialize` Timeout
 
-Use stdio app-server mode, not the unix socket proxy:
+使用 stdio app-server 模式，不要使用 unix socket proxy：
 
 ```sh
 codex app-server --listen stdio://
 ```
 
-The unix socket proxy carries websocket frames and is not the current client
-path used by this project.
+当前项目使用的 client path 是 stdio。unix socket proxy 会携带 websocket frames，不是
+这里的默认通信路径。
 
-### Read-only Write Is Not Denied
+### Read-only Write 没有被拒绝
 
-Treat this as a release blocker. The Butler design depends on sandbox policy
-being enforceable before worker sessions can be trusted with task execution.
+这是 release blocker。Butler 设计依赖 sandbox policy 能在 worker 执行前被强制执行。
 
-### Worker Turn Probe Fails
+### Worker Turn Probe 失败
 
-Treat this as a transport blocker. The product requires true app-server turns,
-not only thread creation or standalone command execution.
+这是 transport blocker。产品需要真实 app-server turns，不只是 thread creation 或
+standalone command execution。
 
-### Promotion Is Blocked By Dirty Main Workspace
+### Promotion 被 Dirty Main Workspace 阻塞
 
-Commit, stash, or intentionally clear unrelated main-workspace changes before
-promotion. The promotion gate refuses to apply worker diffs into a dirty main
-workspace.
+在 promotion 之前提交、stash 或有意识地清理 main workspace 中的无关改动。promotion
+gate 会拒绝把 worker diff 应用到 dirty main workspace。
 
-### Daemon Status Is `stale`
+### Daemon Status 是 `stale`
 
-The recorded PID no longer exists. Run:
+记录的 PID 已经不存在。普通 daemon 模式下运行：
 
 ```sh
 npm run daemon -- stop
 npm run daemon -- start
 ```
 
-If the daemon is managed by `launchd`, restart the managed service instead:
+如果 daemon 由 `launchd` 管理，重启 managed service：
 
 ```sh
 npm run launchd -- restart --target daemon
@@ -193,9 +190,9 @@ npm run launchd -- restart --target daemon
 
 ## Evidence Rules
 
-- `declared`: model says it did something.
-- `prompt-constrained`: prompt required the behavior.
-- `transcript-supported`: transcript shows the behavior.
-- `externally-verified`: service or command evidence confirms it.
+- `declared`：模型声称自己做了。
+- `prompt-constrained`：prompt 要求它这样做。
+- `transcript-supported`：transcript 显示相关行为。
+- `externally-verified`：service 或命令证据确认行为成立。
 
-Only `externally-verified` may be reported as verified.
+只有 `externally-verified` 可以被报告为 verified。
