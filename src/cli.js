@@ -135,6 +135,13 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "probe-session") {
+    const [sessionIdOrThreadId] = args;
+    if (!sessionIdOrThreadId) throw new Error("usage: codex-butler probe-session <session-id-or-thread-id>");
+    console.log(JSON.stringify(await createDefaultService().probeSession({ sessionIdOrThreadId }), null, 2));
+    return 0;
+  }
+
   if (command === "status") {
     console.log(JSON.stringify(await createDefaultService().status(), null, 2));
     return 0;
@@ -262,6 +269,9 @@ Commands:
 
   sessions [role]
     List managed sessions, optionally filtered by role.
+
+  probe-session <session-id-or-thread-id>
+    Send a minimal turn to a managed session to verify current transport reachability.
 
   status
     Print goals, tasks, and control-plane data location.

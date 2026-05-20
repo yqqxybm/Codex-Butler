@@ -174,6 +174,74 @@ export class ButlerService {
     return sessions.filter((session) => session.role === normalizedRole);
   }
 
+  async probeSession({ sessionIdOrThreadId }) {
+    const target = requiredText(sessionIdOrThreadId, "sessionIdOrThreadId");
+    const state = await this.state.load();
+    const session = Object.values(state.sessions)
+      .find((item) => item.id === target || item.threadId === target);
+    if (!session) throw new Error(`Unknown session: ${target}`);
+
+    const client = this.clientFactory();
+    let result;
+    try {
+      const turn = await client.startTurn({
+        threadId: session.threadId,
+        inputText: "Return JSON only: {\"status\":\"ok\",\"role\":\"session-probe\"}. Do not run tools.",
+        outputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["status", "role"],
+          properties: {
+            status: { type: "string", enum: ["ok"] },
+            role: { type: "string", enum: ["session-probe"] }
+          }
+        },
+        cwd: session.cwd ?? this.projectRoot,
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        timeoutMs: 60000
+      });
+      const parsed = parseJson(turn.finalText);
+      result = {
+        ok: turn.completed.params?.turn?.status === "completed" && parsed?.status === "ok",
+        sessionId: session.id,
+        threadId: session.threadId,
+        turnId: turn.completed.params?.turn?.id ?? turn.start?.turn?.id ?? null,
+        turnStatus: turn.completed.params?.turn?.status ?? null,
+        finalText: turn.finalText,
+        error: null
+      };
+    } catch (error) {
+      result = {
+        ok: false,
+        sessionId: session.id,
+        threadId: session.threadId,
+        turnId: null,
+        turnStatus: null,
+        finalText: null,
+        error: error.message
+      };
+    } finally {
+      client.close();
+    }
+
+    session.health = {
+      status: result.ok ? "reachable" : "unreachable",
+      probedAt: new Date().toISOString(),
+      turnId: result.turnId,
+      error: result.error
+    };
+    state.sessions[session.id] = session;
+    await this.state.save(state);
+    await this.ledger.append("session.probed", {
+      sessionId: session.id,
+      threadId: session.threadId,
+      ok: result.ok,
+      turnId: result.turnId,
+      error: result.error
+    });
+    return result;
+  }
+
   async dispatchTask({ taskId }) {
     const state = await this.state.load();
     let task = requiredTask(state, taskId);

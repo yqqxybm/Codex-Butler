@@ -59,6 +59,10 @@ session 登记为 `butler-controller`，`register-session` 可登记普通 worke
 后续稳定提供 session enumeration API，可以在这里补 discovery adapter；当前边界是管理
 用户或上游系统明确给出的 thread/session id。
 
+session registry 还提供 probe gate。probe 会向目标 session 发一个最小 schema turn；
+只有 probe 成功的 session 才能被当前 transport 视为可达。单纯登记成功不等于 session
+可用。
+
 ### Daemon Management
 
 `src/daemon.js` 管理本地 `codex-butlerd` 进程，支持 start/status/stop/run。

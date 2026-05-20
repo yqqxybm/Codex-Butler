@@ -55,6 +55,7 @@ npm run butler -- dashboard
 npm run butler -- register-session <thread-id> worker-session --label "Existing worker"
 npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
 npm run butler -- sessions
+npm run butler -- probe-session <thread-id>
 ```
 
 `register-session` 用于登记普通已有 session；`add-butler-session` 用于把某个已有 session
@@ -63,6 +64,10 @@ status、dashboard、MCP tools 和 Web Console 中。
 
 注意：当前 Codex app-server 路径没有被本项目验证过“枚举所有本地会话”的稳定 API。
 因此这里不做假发现；只管理已经明确给出 thread/session id 的本地 session。
+
+登记后的 session 必须通过 `probe-session` 或 Web Console 的 `Probe` 才能视为可被当前
+控制平面使用。如果 probe 返回 `thread not found`，该 session 只能算 registry 记录，不能
+算可调度对象。
 
 ## Butler Daemon
 
@@ -85,7 +90,7 @@ npm run mcp
 
 这个命令是 Butler session 使用的 stdio MCP server 入口。server 暴露 goal、task、
 dispatch、worktree、verifier、promotion、status、ledger、planning、dashboard、
-daemon 管理和 session registry 工具。
+daemon 管理和 session registry/probe 工具。
 
 ## Web Console
 
@@ -96,6 +101,8 @@ npm run web -- --host 127.0.0.1 --port 4177
 打开 `http://127.0.0.1:4177`。Web Console 是本地 operator UI，用于 goal planning、
 daemon control、task action、status metrics 和 recent ledger events。默认只绑定
 localhost。
+
+完整操作说明见 [user-manual.md](user-manual.md)。
 
 ## macOS 长期服务
 

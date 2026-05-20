@@ -59,6 +59,39 @@ test("web server registers an existing session as the Butler controller", async 
   }
 });
 
+test("web server exposes a session probe route", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "codex-butler-web-"));
+  const service = new ButlerService({
+    projectRoot,
+    clientFactory: () => ({
+      async startTurn() {
+        return {
+          start: { turn: { id: "turn-start" } },
+          completed: { params: { turn: { id: "turn-web-probe", status: "completed" } } },
+          finalText: JSON.stringify({ status: "ok", role: "session-probe" })
+        };
+      },
+      close() {}
+    })
+  });
+  const server = createWebServer({ service });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const session = await service.addButlerSession({ threadId: "thread-web-probe" });
+    const result = await fetchJson(`${baseUrl}/api/sessions/${encodeURIComponent(session.id)}/probe`, {
+      method: "POST"
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.turnId, "turn-web-probe");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
 test("web server rejects unknown API routes", async () => {
   const { baseUrl, close } = await startTestServer();
   try {

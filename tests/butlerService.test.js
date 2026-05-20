@@ -171,6 +171,64 @@ test("service registers existing sessions and marks one as the Butler controller
   ]);
 });
 
+test("service probes managed session reachability and records health", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => ({
+      async startTurn({ threadId }) {
+        return {
+          start: { turn: { id: "turn-start" } },
+          completed: { params: { turn: { id: "turn-probe", status: "completed" } } },
+          finalText: JSON.stringify({ status: "ok", role: "session-probe" }),
+          threadId
+        };
+      },
+      close() {}
+    })
+  });
+
+  const session = await service.addButlerSession({
+    threadId: "thread-probe",
+    label: "Probe Butler"
+  });
+  const probe = await service.probeSession({ sessionIdOrThreadId: session.id });
+  assert.equal(probe.ok, true);
+  assert.equal(probe.turnId, "turn-probe");
+
+  const status = await service.status();
+  const updated = status.sessions.find((item) => item.id === session.id);
+  assert.equal(updated.health.status, "reachable");
+
+  const events = await service.readLedger();
+  assert.equal(events.at(-1).type, "session.probed");
+});
+
+test("service marks managed session unreachable when probe turn fails", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => ({
+      async startTurn() {
+        throw new Error("thread not found");
+      },
+      close() {}
+    })
+  });
+
+  const session = await service.addButlerSession({
+    threadId: "thread-missing",
+    label: "Missing Butler"
+  });
+  const probe = await service.probeSession({ sessionIdOrThreadId: "thread-missing" });
+  assert.equal(probe.ok, false);
+  assert.match(probe.error, /thread not found/);
+
+  const status = await service.status();
+  const updated = status.sessions.find((item) => item.id === session.id);
+  assert.equal(updated.health.status, "unreachable");
+});
+
 function fakeClient(result) {
   return {
     async startEphemeralThread() {

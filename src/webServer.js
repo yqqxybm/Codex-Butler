@@ -116,6 +116,15 @@ async function routeApi(method, url, request, response, service) {
     }));
     return;
   }
+  const sessionAction = /^\/api\/sessions\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  if (method === "POST" && sessionAction) {
+    const sessionIdOrThreadId = decodeURIComponent(sessionAction[1]);
+    const action = sessionAction[2];
+    if (action === "probe") {
+      sendJson(response, 200, await service.probeSession({ sessionIdOrThreadId }));
+      return;
+    }
+  }
 
   const taskAction = /^\/api\/tasks\/([^/]+)\/([^/]+)$/.exec(url.pathname);
   if (method === "POST" && taskAction) {

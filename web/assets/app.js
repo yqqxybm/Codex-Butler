@@ -74,6 +74,14 @@ elements.taskTable.addEventListener("click", async (event) => {
   await refresh();
 });
 
+elements.sessionsList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-session-action]");
+  if (!button) return;
+  const sessionId = button.dataset.sessionId;
+  await runAction("Session probed", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`));
+  await refresh();
+});
+
 await refresh();
 setInterval(refresh, 5000);
 
@@ -178,7 +186,10 @@ function renderSessions(sessions) {
         <span class="pill">${escapeHtml(shortId(session.id))}</span>
       </div>
       <p class="item-title">${escapeHtml(session.label)}</p>
-      <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""}</p>
+      <p class="item-subtitle">${escapeHtml(session.threadId)}${session.health ? ` · ${escapeHtml(session.health.status)}` : ""}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""}</p>
+      <div class="row-actions">
+        <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">Probe</button>
+      </div>
     </article>
   `).join("");
 }

@@ -91,6 +91,13 @@ export function createMcpServer(service = createDefaultService()) {
     }
   }, ({ role }) => service.listSessions({ role }));
 
+  registerJsonTool(server, "butler_probe_session", {
+    description: "Send a minimal turn to a managed session to verify current transport reachability.",
+    inputSchema: {
+      sessionIdOrThreadId: z.string().min(1)
+    }
+  }, ({ sessionIdOrThreadId }) => service.probeSession({ sessionIdOrThreadId }));
+
   registerJsonTool(server, "butler_status", {
     description: "Read Butler goals, tasks, states, and data location.",
     inputSchema: {}

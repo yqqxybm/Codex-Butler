@@ -108,6 +108,7 @@ MCP server 暴露同一套控制平面能力：
 - `butler_register_session`
 - `butler_add_butler_session`
 - `butler_sessions`
+- `butler_probe_session`
 - `butler_status`
 - `butler_dashboard`
 - `butler_daemon_status`
@@ -126,6 +127,8 @@ npm run web -- --host 127.0.0.1 --port 4177
 登记已有本地 session、管理 daemon、分配 worktree、dispatch task、运行 verification、
 promotion verified work。
 
+网页操作和 session 有效性判断见 [docs/user-manual.md](docs/user-manual.md)。
+
 ## 管理已有本地 Session
 
 如果本地已经有可识别的 Codex thread/session id，可以把它登记进 Butler 状态，而不是
@@ -135,11 +138,15 @@ promotion verified work。
 npm run butler -- register-session <thread-id> worker-session --label "Existing worker"
 npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
 npm run butler -- sessions
+npm run butler -- probe-session <thread-id>
 ```
 
 `add-butler-session` 是 `register-session` 的快捷形式，会把该已有 session 标记为
 `butler-controller`。当前实现负责把已有 session 纳入 Butler 的状态、dashboard、MCP 和
 Web Console；它不会伪造 app-server 不提供的“自动枚举所有本地会话”能力。
+
+登记只说明“被纳入管理面”，不说明“可被当前控制平面调度”。必须用
+`probe-session` 或 Web Console 里的 `Probe` 返回成功，才算当前 transport 可达。
 
 ## 长期本地服务
 
