@@ -1,3 +1,6 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 export const EVIDENCE_LEVELS = Object.freeze([
   "declared",
   "prompt-constrained",
@@ -112,6 +115,7 @@ export function buildWorkOrder({ role, taskId, goal, ownedScope, objective, targ
     objective,
     ownedScope,
     requiredSkill: contract.requiredSkill,
+    requiredSkillPath: contract.requiredSkill ? skillPath(contract.requiredSkill) : null,
     forbidden: contract.forbidden,
     outputSchema: WORKER_OUTPUT_SCHEMA
   };
@@ -141,4 +145,9 @@ export function validateWorkerResult(workOrder, result) {
     ok: errors.length === 0,
     errors
   };
+}
+
+function skillPath(skillName) {
+  const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
+  return join(codexHome, "skills", skillName, "SKILL.md");
 }

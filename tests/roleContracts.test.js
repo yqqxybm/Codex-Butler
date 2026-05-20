@@ -11,6 +11,7 @@ test("iteration worker work order carries the required skill and forbidden actio
     ownedScope: "worktrees/t1"
   });
   assert.equal(order.requiredSkill, "project-iteration");
+  assert.match(order.requiredSkillPath, /\/\.codex\/skills\/project-iteration\/SKILL\.md$/);
   assert.ok(order.forbidden.includes("edit_main_workspace"));
   assert.equal(order.outputSchema, WORKER_OUTPUT_SCHEMA);
 });
