@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Butler</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="side-rail" aria-label="Workspace">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">CB</div>
+          <div>
+            <p class="eyebrow">local control plane</p>
+            <h1>Codex Butler</h1>
+          </div>
+        </div>
+        <nav class="rail-nav" aria-label="Sections">
+          <a href="#overview" class="active">Overview</a>
+          <a href="#goals">Goals</a>
+          <a href="#tasks">Tasks</a>
+          <a href="#events">Events</a>
+        </nav>
+        <div class="daemon-tile" id="daemonTile">
+          <span class="status-dot neutral" aria-hidden="true"></span>
+          <span>Daemon unknown</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="topbar" id="overview">
+          <div>
+            <p class="eyebrow">operator console</p>
+            <h2>Plan, monitor, and promote controlled Codex work.</h2>
+          </div>
+          <div class="topbar-actions">
+            <button class="button secondary" id="refreshButton" type="button">Refresh</button>
+            <button class="button secondary" id="startDaemonButton" type="button">Start Daemon</button>
+            <button class="button danger" id="stopDaemonButton" type="button">Stop</button>
+          </div>
+        </section>
+
+        <section class="planner-band" aria-label="Create a plan">
+          <form class="planner-form" id="plannerForm">
+            <label for="objectiveInput">New objective</label>
+            <div class="planner-row">
+              <input id="objectiveInput" name="objective" autocomplete="off" placeholder="Build a release workflow and verify it" required>
+              <button class="button primary" type="submit">Plan Goal</button>
+            </div>
+            <p class="helper-text" id="formHelp">Creates a goal plus role-owned tasks with prerequisites.</p>
+          </form>
+        </section>
+
+        <section class="metric-grid" aria-label="Summary metrics">
+          <article class="metric-panel">
+            <span class="metric-label">Goals</span>
+            <strong id="goalCount">0</strong>
+            <small id="activeGoalCount">0 active</small>
+          </article>
+          <article class="metric-panel">
+            <span class="metric-label">Tasks</span>
+            <strong id="taskCount">0</strong>
+            <small id="queuedTaskCount">0 queued</small>
+          </article>
+          <article class="metric-panel">
+            <span class="metric-label">Blocked</span>
+            <strong id="blockedCount">0</strong>
+            <small>goals and tasks</small>
+          </article>
+          <article class="metric-panel accent-panel">
+            <span class="metric-label">Evidence</span>
+            <strong id="verifiedCount">0</strong>
+            <small>verified or promoted</small>
+          </article>
+        </section>
+
+        <section class="system-map" aria-label="Control topology">
+          <div class="map-node">
+            <span>Butler</span>
+            <strong>MCP tools</strong>
+          </div>
+          <div class="map-link" aria-hidden="true"></div>
+          <div class="map-node">
+            <span>Service</span>
+            <strong>state + ledger</strong>
+          </div>
+          <div class="map-link" aria-hidden="true"></div>
+          <div class="map-node">
+            <span>Workers</span>
+            <strong>worktrees</strong>
+          </div>
+          <div class="map-link" aria-hidden="true"></div>
+          <div class="map-node">
+            <span>Gate</span>
+            <strong>verify + promote</strong>
+          </div>
+        </section>
+
+        <div class="content-grid">
+          <section class="panel" id="goals">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">intent queue</p>
+                <h3>Goals</h3>
+              </div>
+            </div>
+            <div class="list" id="goalsList"></div>
+          </section>
+
+          <section class="panel task-panel" id="tasks">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">execution graph</p>
+                <h3>Tasks</h3>
+              </div>
+            </div>
+            <div class="task-table" id="taskTable"></div>
+          </section>
+        </div>
+
+        <section class="panel" id="events">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">audit trail</p>
+              <h3>Recent events</h3>
+            </div>
+          </div>
+          <div class="event-log" id="eventLog"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/app.js" type="module"></script>
+  </body>
+</html>

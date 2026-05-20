@@ -4,6 +4,7 @@ import { runCapabilityProbe } from "./capabilityProbe.js";
 import { buildWorkOrder } from "./roleContracts.js";
 import { createDefaultService } from "./butlerService.js";
 import { runDaemon } from "./daemon.js";
+import { startWebServer } from "./webServer.js";
 
 async function main(argv) {
   const [command, ...args] = argv;
@@ -145,6 +146,13 @@ async function main(argv) {
     throw new Error("usage: codex-butler daemon <status|start|stop|run>");
   }
 
+  if (command === "web") {
+    const parsed = parseWebArgs(args);
+    const result = await startWebServer(parsed);
+    console.log(`codex-butler web listening at http://${result.host}:${result.port}`);
+    await new Promise(() => {});
+  }
+
   throw new Error(`unknown command: ${command}`);
 }
 
@@ -193,7 +201,20 @@ Commands:
 
   daemon <status|start|stop|run>
     Manage the long-running Butler daemon process.
+
+  web [--host 127.0.0.1] [--port 4177]
+    Serve the local web console.
 `);
+}
+
+function parseWebArgs(argv) {
+  const parsed = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (item === "--host") parsed.host = argv[++index];
+    else if (item === "--port") parsed.port = argv[++index];
+  }
+  return parsed;
 }
 
 main(process.argv.slice(2))

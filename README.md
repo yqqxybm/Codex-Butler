@@ -51,6 +51,7 @@ npm run daemon -- status
 npm run butler -- plan-goal "ship a feature"
 npm run butler -- status
 npm run butler -- dashboard
+npm run web
 npm run mcp
 ```
 
@@ -99,6 +100,7 @@ npm run butler -- dashboard
 npm run daemon -- start
 npm run daemon -- status
 npm run daemon -- stop
+npm run web -- --port 4177
 ```
 
 The MCP server exposes the same control-plane operations as tools:
@@ -116,3 +118,14 @@ The MCP server exposes the same control-plane operations as tools:
 - `butler_daemon_start`
 - `butler_daemon_stop`
 - `butler_read_ledger`
+
+## Web Console
+
+```sh
+npm run web -- --host 127.0.0.1 --port 4177
+```
+
+Open `http://127.0.0.1:4177` to use the local web console. The console is bound
+to localhost by default and exposes the same local control-plane actions as the
+CLI: plan goals, inspect tasks and events, manage the daemon, allocate
+worktrees, dispatch tasks, run verification, and promote verified work.

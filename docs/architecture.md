@@ -84,6 +84,14 @@ session.
 counts, task states, active work, and recent ledger events. CLI and MCP expose
 the same status surface.
 
+### Web Console
+
+`src/webServer.js` serves a localhost-only web console and JSON API over Node's
+built-in HTTP server. The UI is static HTML/CSS/JavaScript under `web/` and
+calls the same `ButlerService` methods as CLI and MCP. The web layer is a local
+operator surface; it does not bypass service-side state transitions, worktree
+allocation, verifier gates, or promotion rules.
+
 ### Ledger
 
 Append-only JSONL events. Each event has a stable event id, timestamp, type, and
@@ -140,5 +148,6 @@ that worktree.
 The current repository implements the local deterministic Butler control plane:
 transport probes, daemon management, planning, MCP tools, dispatch, transcript
 evidence extraction, worktree allocation, verification, promotion, dashboard,
-tests, and runbook. Remote deployment, a native GUI, and hosted release
-packaging are outside this repository's current local-control-plane boundary.
+local web console, tests, and runbook. Remote deployment, a native desktop GUI,
+and hosted release packaging are outside this repository's current
+local-control-plane boundary.

@@ -68,6 +68,16 @@ Use this command as the stdio MCP server entrypoint for Butler sessions. The
 server exposes goal, task, dispatch, worktree, verifier, promotion, status, and
 ledger tools, plus planning, dashboard, and daemon management tools.
 
+## Web Console
+
+```sh
+npm run web -- --host 127.0.0.1 --port 4177
+```
+
+Open `http://127.0.0.1:4177`. The web console is a local operator UI for goal
+planning, daemon control, task action buttons, status metrics, and recent ledger
+events. It binds to localhost by default.
+
 ## Planning And Dashboard
 
 ```sh
