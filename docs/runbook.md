@@ -38,9 +38,12 @@ npm run probe:turn
 ```sh
 npm run butler -- submit-goal "ship a feature"
 npm run butler -- plan-goal "ship a feature"
+npm run butler -- advance-goal <goal-id>
+npm run butler -- advance-goal <goal-id> --max-steps 20
 npm run butler -- create-task <goal-id> verifier "run smoke checks"
 npm run butler -- add-butler-session <thread-id> --label "Existing Butler"
 npm run butler -- sessions
+npm run butler -- probe-sessions
 npm run butler -- status
 npm run butler -- dashboard
 ```
@@ -65,7 +68,7 @@ status、dashboard、MCP tools 和 Web Console 中。
 注意：当前 Codex app-server 路径没有被本项目验证过“枚举所有本地会话”的稳定 API。
 因此这里不做假发现；只管理已经明确给出 thread/session id 的本地 session。
 
-登记后的 session 必须通过 `probe-session` 或 Web Console 的 `Probe` 才能视为可被当前
+登记后的 session 必须通过 `probe-session` 或 Web Console 的“检查”才能视为可被当前
 控制平面使用。如果 probe 返回 `thread not found`，该 session 只能算 registry 记录，不能
 算可调度对象。
 
@@ -98,9 +101,8 @@ daemon 管理和 session registry/probe 工具。
 npm run web -- --host 127.0.0.1 --port 4177
 ```
 
-打开 `http://127.0.0.1:4177`。Web Console 是本地 operator UI，用于 goal planning、
-daemon control、task action、status metrics 和 recent ledger events。默认只绑定
-localhost。
+打开 `http://127.0.0.1:4177`。Web Console 是本地用户工作台，用于检查会话、输入目标、
+一键推进、查看任务状态和最近事件。默认只绑定 localhost。
 
 完整操作说明见 [user-manual.md](user-manual.md)。
 
@@ -153,6 +155,8 @@ LaunchAgent plist 文件存放在 `~/Library/LaunchAgents/`。卸载服务不会
 
 ```sh
 npm run butler -- plan-goal "Build a CLI dashboard and tests"
+npm run butler -- advance-goal <goal-id>
+npm run butler -- advance-goal <goal-id> --max-steps 20
 npm run butler -- dashboard
 ```
 
@@ -161,6 +165,9 @@ implementation goal 会生成 iteration、review、verifier、promoter tasks。
 review-only goal 只生成 review 和 verifier tasks。后续 gate task 会携带
 `targetTaskId`，让 Butler session 明确知道它正在 review、verify 或 promote 哪个上游
 task。
+
+普通使用优先用 `advance-goal` 或网页里的“继续推进/自动推进”。手动运行
+`allocate-worktree`、`dispatch-task`、`verify-task`、`promote-task` 只适合排障。
 
 ## Transcript Evidence
 

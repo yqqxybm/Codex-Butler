@@ -11,6 +11,7 @@ test("web server serves the app shell and status API", async () => {
   try {
     const page = await fetchText(`${baseUrl}/`);
     assert.match(page, /Codex Butler/);
+    assert.match(page, /输入目标/);
     assert.match(page, /app\.js/);
 
     const status = await fetchJson(`${baseUrl}/api/status`);
@@ -18,6 +19,45 @@ test("web server serves the app shell and status API", async () => {
     assert.equal(status.tasks.length, 0);
   } finally {
     await close();
+  }
+});
+
+test("web server exposes one-click product actions", async () => {
+  const service = {
+    async planGoal({ objective }) {
+      return { goal: { id: "goal-web-run", objective }, tasks: [] };
+    },
+    async advanceGoal({ goalId, maxSteps }) {
+      return { ok: true, goal: { id: goalId }, actions: [{ action: "done", ok: true, maxSteps }] };
+    },
+    async probeAllSessions() {
+      return { ok: true, total: 2, reachable: 2, results: [] };
+    }
+  };
+  const server = createWebServer({ service });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const planned = await fetchJson(`${baseUrl}/api/goals/plan-and-run`, {
+      method: "POST",
+      body: JSON.stringify({ objective: "Ship the user flow", maxSteps: 3 })
+    });
+    assert.equal(planned.planned.goal.id, "goal-web-run");
+    assert.equal(planned.advanced.actions[0].maxSteps, 3);
+
+    const advanced = await fetchJson(`${baseUrl}/api/goals/goal-web-run/advance`, {
+      method: "POST",
+      body: JSON.stringify({ maxSteps: 1 })
+    });
+    assert.equal(advanced.ok, true);
+
+    const probes = await fetchJson(`${baseUrl}/api/sessions/probe-all`, { method: "POST" });
+    assert.equal(probes.reachable, 2);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
   }
 });
 

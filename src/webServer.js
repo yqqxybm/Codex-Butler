@@ -93,6 +93,29 @@ async function routeApi(method, url, request, response, service) {
     sendJson(response, 200, await service.planGoal({ objective: requiredText(body.objective, "objective") }));
     return;
   }
+  if (method === "POST" && url.pathname === "/api/goals/plan-and-run") {
+    const body = await readJsonBody(request);
+    const planned = await service.planGoal({ objective: requiredText(body.objective, "objective") });
+    const advanced = await service.advanceGoal({
+      goalId: planned.goal.id,
+      maxSteps: body.maxSteps ?? 1
+    });
+    sendJson(response, 200, { planned, advanced });
+    return;
+  }
+  const goalAction = /^\/api\/goals\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  if (method === "POST" && goalAction) {
+    const goalId = decodeURIComponent(goalAction[1]);
+    const action = goalAction[2];
+    const body = await readJsonBody(request);
+    if (action === "advance") {
+      sendJson(response, 200, await service.advanceGoal({
+        goalId,
+        maxSteps: body.maxSteps ?? 1
+      }));
+      return;
+    }
+  }
   if (method === "POST" && url.pathname === "/api/sessions/register") {
     const body = await readJsonBody(request);
     sendJson(response, 200, await service.registerSession({
@@ -114,6 +137,10 @@ async function routeApi(method, url, request, response, service) {
       cwd: body.cwd,
       notes: body.notes
     }));
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/sessions/probe-all") {
+    sendJson(response, 200, await service.probeAllSessions());
     return;
   }
   const sessionAction = /^\/api\/sessions\/([^/]+)\/([^/]+)$/.exec(url.pathname);

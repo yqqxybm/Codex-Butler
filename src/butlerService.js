@@ -242,6 +242,114 @@ export class ButlerService {
     return result;
   }
 
+  async probeAllSessions() {
+    const sessions = await this.listSessions();
+    const results = [];
+    for (const session of sessions) {
+      results.push(await this.probeSession({ sessionIdOrThreadId: session.id }));
+    }
+    return {
+      ok: results.every((result) => result.ok),
+      total: results.length,
+      reachable: results.filter((result) => result.ok).length,
+      results
+    };
+  }
+
+  async advanceGoal({ goalId, maxSteps = 1 }) {
+    const normalizedGoalId = requiredText(goalId, "goalId");
+    const stepLimit = Math.max(1, Math.min(Number(maxSteps) || 1, 20));
+    const actions = [];
+
+    for (let index = 0; index < stepLimit; index += 1) {
+      const state = await this.state.load();
+      const goal = requiredGoal(state, normalizedGoalId);
+      const tasks = orderedGoalTasks(state, goal.id);
+      const task = tasks.find((candidate) => isRunnableTask(state, candidate));
+
+      if (!task) {
+        actions.push({
+          action: isGoalComplete(tasks) ? "done" : "blocked",
+          ok: isGoalComplete(tasks),
+          reason: isGoalComplete(tasks)
+            ? "all goal tasks are verified or promoted"
+            : "no runnable task is ready; check blocked, rework, or unmet prerequisites"
+        });
+        break;
+      }
+
+      actions.push(await this.advanceTask(task));
+      await this.refreshGoalState(normalizedGoalId);
+    }
+
+    await this.refreshGoalState(normalizedGoalId);
+    const status = await this.status();
+    const goal = status.goals.find((item) => item.id === normalizedGoalId);
+    const tasks = status.tasks.filter((task) => task.goalId === normalizedGoalId);
+    return {
+      ok: actions.length > 0 && actions.every((action) => action.ok !== false),
+      goal,
+      tasks,
+      actions
+    };
+  }
+
+  async advanceTask(task) {
+    if (task.ownerRole === "verifier") {
+      const result = await this.runVerifier({ taskId: task.id });
+      return {
+        action: "verify",
+        ok: result.state === "verified",
+        taskId: task.id,
+        state: result.state
+      };
+    }
+
+    if (task.ownerRole === "promoter") {
+      const result = await this.promoteTask({ taskId: task.id });
+      return {
+        action: "promote",
+        ok: result.ok,
+        taskId: task.id,
+        state: result.task.state,
+        result: result.result
+      };
+    }
+
+    let worktree = null;
+    if (needsWorktree(task) && !task.worktreePath) {
+      worktree = await this.allocateTaskWorktree({ taskId: task.id });
+      if (!worktree.ok) {
+        return {
+          action: "allocate-worktree",
+          ok: false,
+          taskId: task.id,
+          result: worktree
+        };
+      }
+    }
+
+    const result = await this.dispatchTask({ taskId: task.id });
+    return {
+      action: worktree ? "allocate-and-dispatch" : "dispatch",
+      ok: !["blocked", "failed", "rework"].includes(result.state),
+      taskId: task.id,
+      state: result.state,
+      worktreePath: result.worktreePath ?? null
+    };
+  }
+
+  async refreshGoalState(goalId) {
+    const state = await this.state.load();
+    let goal = requiredGoal(state, goalId);
+    const tasks = orderedGoalTasks(state, goal.id);
+    const desired = desiredGoalState(tasks);
+    goal = transitionGoalToward(goal, desired);
+    state.goals[goal.id] = goal;
+    await this.state.save(state);
+    return goal;
+  }
+
   async dispatchTask({ taskId }) {
     const state = await this.state.load();
     let task = requiredTask(state, taskId);
@@ -299,6 +407,8 @@ export class ButlerService {
         task = transition(task, "validating", { validation });
         if (!validation.ok || parsed?.status === "needs_rework") {
           task = transition(task, "rework", { validation });
+        } else if (task.ownerRole === "analysis-worker" || task.ownerRole === "review-worker") {
+          task = transition(task, "verified", { validation });
         }
       }
       state.tasks[taskId] = task;
@@ -458,10 +568,64 @@ function requiredTask(state, taskId) {
 
 function assertPrerequisitesMet(state, task) {
   const unmetPrerequisites = (task.prerequisites ?? [])
-    .filter((id) => !["verified", "promoted"].includes(state.tasks[id]?.state));
+    .filter((id) => !isPrerequisiteMet(state, task, id));
   if (unmetPrerequisites.length > 0) {
     throw new Error(`Task ${task.id} has unmet prerequisites: ${unmetPrerequisites.join(", ")}`);
   }
+}
+
+function orderedGoalTasks(state, goalId) {
+  return Object.values(state.tasks)
+    .filter((task) => task.goalId === goalId)
+    .sort((left, right) => taskOrder(left) - taskOrder(right));
+}
+
+function taskOrder(task) {
+  const match = /^plan-(\d+)$/.exec(task.planItemId ?? "");
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+function isRunnableTask(state, task) {
+  if (task.state !== "queued") return false;
+  return (task.prerequisites ?? []).every((id) => isPrerequisiteMet(state, task, id));
+}
+
+function isPrerequisiteMet(state, task, prerequisiteId) {
+  const prerequisite = state.tasks[prerequisiteId];
+  if (!prerequisite) return false;
+  if (["verified", "promoted"].includes(prerequisite.state)) return true;
+  if (task.ownerRole === "review-worker") {
+    return ["validating", "review"].includes(prerequisite.state);
+  }
+  return false;
+}
+
+function isGoalComplete(tasks) {
+  return tasks.length > 0 && tasks.every((task) => ["verified", "promoted"].includes(task.state));
+}
+
+function desiredGoalState(tasks) {
+  if (tasks.length === 0) return "planned";
+  if (isGoalComplete(tasks)) return "done";
+  if (tasks.some((task) => task.ownerRole === "promoter" && task.state !== "queued")) return "promoting";
+  if (tasks.some((task) => ["review-worker", "verifier"].includes(task.ownerRole) && task.state !== "queued")) return "reviewing";
+  if (tasks.some((task) => task.state !== "queued")) return "running";
+  return "planned";
+}
+
+function transitionGoalToward(goal, desiredState) {
+  const order = ["intake", "planned", "running", "reviewing", "promoting", "done"];
+  const targetIndex = order.indexOf(desiredState);
+  if (targetIndex === -1 || !order.includes(goal.state)) return goal;
+  let current = goal;
+  while (targetIndex > order.indexOf(current.state)) {
+    current = transition(current, order[order.indexOf(current.state) + 1], { source: "goal-advance" });
+  }
+  return current;
+}
+
+function needsWorktree(task) {
+  return ["iteration-worker", "refine-worker"].includes(task.ownerRole);
 }
 
 function parseJson(text) {

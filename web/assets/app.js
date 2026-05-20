@@ -14,7 +14,10 @@ const elements = {
   refreshButton: document.querySelector("#refreshButton"),
   startDaemonButton: document.querySelector("#startDaemonButton"),
   stopDaemonButton: document.querySelector("#stopDaemonButton"),
+  probeAllButton: document.querySelector("#probeAllButton"),
   daemonTile: document.querySelector("#daemonTile"),
+  readinessTitle: document.querySelector("#readinessTitle"),
+  readinessText: document.querySelector("#readinessText"),
   goalCount: document.querySelector("#goalCount"),
   activeGoalCount: document.querySelector("#activeGoalCount"),
   taskCount: document.querySelector("#taskCount"),
@@ -33,9 +36,11 @@ elements.plannerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const objective = elements.objectiveInput.value.trim();
   if (!objective) return;
-  await runAction("Plan created", () => api("/api/goals/plan", {
+  const mode = event.submitter?.dataset?.planMode ?? "run";
+  const path = mode === "plan" ? "/api/goals/plan" : "/api/goals/plan-and-run";
+  await runAction(mode === "plan" ? "计划已生成" : "计划已生成，并已推进第一步", () => api(path, {
     method: "POST",
-    body: JSON.stringify({ objective })
+    body: JSON.stringify({ objective, maxSteps: 1 })
   }));
   elements.objectiveInput.value = "";
   await refresh();
@@ -46,7 +51,7 @@ elements.sessionForm.addEventListener("submit", async (event) => {
   const threadId = elements.sessionThreadInput.value.trim();
   const label = elements.sessionLabelInput.value.trim();
   if (!threadId) return;
-  await runAction("Butler session added", () => api("/api/sessions/butler", {
+  await runAction("管家会话已添加", () => api("/api/sessions/butler", {
     method: "POST",
     body: JSON.stringify({ threadId, label: label || null })
   }));
@@ -56,8 +61,20 @@ elements.sessionForm.addEventListener("submit", async (event) => {
 });
 
 elements.refreshButton.addEventListener("click", () => refresh());
-elements.startDaemonButton.addEventListener("click", () => runAction("Daemon started", () => api("/api/daemon/start")).then(refresh));
-elements.stopDaemonButton.addEventListener("click", () => runAction("Daemon stopped", () => api("/api/daemon/stop")).then(refresh));
+elements.startDaemonButton.addEventListener("click", () => runAction("后台已启动", () => api("/api/daemon/start")).then(refresh));
+elements.stopDaemonButton.addEventListener("click", () => runAction("后台已停止", () => api("/api/daemon/stop")).then(refresh));
+elements.probeAllButton.addEventListener("click", () => runAction("会话检查完成", () => api("/api/sessions/probe-all")).then(refresh));
+
+elements.goalsList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-goal-action]");
+  if (!button) return;
+  const goalId = button.dataset.goalId;
+  const maxSteps = Number(button.dataset.maxSteps ?? 1);
+  await runAction(maxSteps > 1 ? "已自动推进到当前边界" : "已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
+    body: JSON.stringify({ maxSteps })
+  }));
+  await refresh();
+});
 
 elements.taskTable.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
@@ -65,12 +82,12 @@ elements.taskTable.addEventListener("click", async (event) => {
   const taskId = button.dataset.taskId;
   const action = button.dataset.action;
   const labels = {
-    "allocate-worktree": "Worktree allocated",
-    dispatch: "Task dispatched",
-    verify: "Task verified",
-    promote: "Task promoted"
+    "allocate-worktree": "工作区已准备",
+    dispatch: "任务已派发",
+    verify: "验证已完成",
+    promote: "提升已完成"
   };
-  await runAction(labels[action] ?? "Task updated", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`));
+  await runAction(labels[action] ?? "任务已更新", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`));
   await refresh();
 });
 
@@ -78,7 +95,7 @@ elements.sessionsList.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-session-action]");
   if (!button) return;
   const sessionId = button.dataset.sessionId;
-  await runAction("Session probed", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`));
+  await runAction("会话已检查", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`));
   await refresh();
 });
 
@@ -133,14 +150,17 @@ function render(data) {
     ...tasks.filter((task) => task.state === "blocked")
   ];
   const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
+  const reachableSessions = sessions.filter((session) => session.health?.status === "reachable");
+  const unreachableSessions = sessions.filter((session) => session.health?.status === "unreachable");
 
   elements.goalCount.textContent = goals.length;
-  elements.activeGoalCount.textContent = `${activeGoals.length} active`;
+  elements.activeGoalCount.textContent = `${activeGoals.length} 个进行中`;
   elements.taskCount.textContent = tasks.length;
-  elements.queuedTaskCount.textContent = `${queuedTasks.length} queued`;
+  elements.queuedTaskCount.textContent = `${queuedTasks.length} 个待执行`;
   elements.blockedCount.textContent = blocked.length;
-  elements.sessionCount.textContent = sessions.length;
-  elements.butlerSessionCount.textContent = `${butlerSessions.length} butler`;
+  elements.sessionCount.textContent = reachableSessions.length;
+  elements.butlerSessionCount.textContent = `${butlerSessions.length} 个管家，${unreachableSessions.length} 个不可达`;
+  renderReadiness(sessions, reachableSessions, unreachableSessions);
   renderDaemon(data.daemon);
   renderGoals(goals);
   renderSessions(sessions);
@@ -152,13 +172,32 @@ function renderDaemon(daemon) {
   const status = daemon?.status ?? "unknown";
   elements.daemonTile.innerHTML = `
     <span class="status-dot ${classForState(status)}" aria-hidden="true"></span>
-    <span>Daemon ${escapeHtml(status)}${daemon?.pid ? ` · pid ${daemon.pid}` : ""}</span>
+    <span>后台 ${escapeHtml(status)}${daemon?.pid ? ` · pid ${daemon.pid}` : ""}</span>
   `;
+}
+
+function renderReadiness(sessions, reachableSessions, unreachableSessions) {
+  if (sessions.length === 0) {
+    elements.readinessTitle.textContent = "还没有会话";
+    elements.readinessText.textContent = "先添加一个现有 Codex session/thread id，再点击检查全部会话。";
+    return;
+  }
+  if (reachableSessions.length > 0) {
+    elements.readinessTitle.textContent = `${reachableSessions.length} 个会话可用`;
+    elements.readinessText.textContent = unreachableSessions.length > 0
+      ? `${unreachableSessions.length} 个会话不可达；可用会话可以参与后续调度。`
+      : "当前登记的会话都能被控制平面访问。";
+    return;
+  }
+  elements.readinessTitle.textContent = "没有可用会话";
+  elements.readinessText.textContent = unreachableSessions.length > 0
+    ? "所有已检查会话都不可达；不能把它们当作可调度 session。"
+    : "已登记会话尚未检查；点击“检查全部会话”。";
 }
 
 function renderGoals(goals) {
   if (goals.length === 0) {
-    elements.goalsList.innerHTML = `<div class="empty-state">No goals yet. Plan an objective to create the execution graph.</div>`;
+    elements.goalsList.innerHTML = `<div class="empty-state">还没有目标。输入目标后，Butler 会生成任务并给出下一步动作。</div>`;
     return;
   }
   elements.goalsList.innerHTML = goals.map((goal) => `
@@ -168,14 +207,18 @@ function renderGoals(goals) {
         <span class="pill">${escapeHtml(shortId(goal.id))}</span>
       </div>
       <p class="item-title">${escapeHtml(goal.objective)}</p>
-      <p class="item-subtitle">${goal.history?.length ?? 0} transitions recorded</p>
+      <p class="item-subtitle">${goal.history?.length ?? 0} 条状态记录</p>
+      <div class="row-actions">
+        <button class="mini-button primary-mini" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">继续推进</button>
+        <button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="20">自动推进</button>
+      </div>
     </article>
   `).join("");
 }
 
 function renderSessions(sessions) {
   if (sessions.length === 0) {
-    elements.sessionsList.innerHTML = `<div class="empty-state">No managed sessions yet. Register an existing local session to make it visible to Butler.</div>`;
+    elements.sessionsList.innerHTML = `<div class="empty-state">还没有登记会话。粘贴一个本地 Codex session/thread id 后再检查可达性。</div>`;
     return;
   }
   elements.sessionsList.innerHTML = sessions.map((session) => `
@@ -188,7 +231,7 @@ function renderSessions(sessions) {
       <p class="item-title">${escapeHtml(session.label)}</p>
       <p class="item-subtitle">${escapeHtml(session.threadId)}${session.health ? ` · ${escapeHtml(session.health.status)}` : ""}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""}</p>
       <div class="row-actions">
-        <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">Probe</button>
+        <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">检查</button>
       </div>
     </article>
   `).join("");
@@ -196,7 +239,7 @@ function renderSessions(sessions) {
 
 function renderTasks(tasks) {
   if (tasks.length === 0) {
-    elements.taskTable.innerHTML = `<div class="empty-state">No tasks yet. Planned goals will appear here with review, verifier, and promoter gates.</div>`;
+    elements.taskTable.innerHTML = `<div class="empty-state">还没有任务。目标生成后，这里会显示实现、审查、验证和提升步骤。</div>`;
     return;
   }
   elements.taskTable.innerHTML = tasks.map((task) => `
@@ -208,13 +251,13 @@ function renderTasks(tasks) {
           <span class="pill">${escapeHtml(shortId(task.id))}</span>
         </div>
         <p class="item-title">${escapeHtml(task.objective)}</p>
-        <p class="item-subtitle">${task.targetTaskId ? `targets ${shortId(task.targetTaskId)}` : "direct task"}${task.worktreePath ? " · worktree ready" : ""}</p>
+        <p class="item-subtitle">${task.targetTaskId ? `目标 ${shortId(task.targetTaskId)}` : "直接任务"}${task.worktreePath ? " · 工作区已准备" : ""}</p>
       </div>
       <div class="row-actions">
-        <button class="mini-button" data-action="allocate-worktree" data-task-id="${escapeHtml(task.id)}">Worktree</button>
-        <button class="mini-button" data-action="dispatch" data-task-id="${escapeHtml(task.id)}">Dispatch</button>
-        <button class="mini-button" data-action="verify" data-task-id="${escapeHtml(task.id)}">Verify</button>
-        <button class="mini-button" data-action="promote" data-task-id="${escapeHtml(task.id)}">Promote</button>
+        <button class="mini-button" data-action="allocate-worktree" data-task-id="${escapeHtml(task.id)}">工作区</button>
+        <button class="mini-button" data-action="dispatch" data-task-id="${escapeHtml(task.id)}">派发</button>
+        <button class="mini-button" data-action="verify" data-task-id="${escapeHtml(task.id)}">验证</button>
+        <button class="mini-button" data-action="promote" data-task-id="${escapeHtml(task.id)}">提升</button>
       </div>
     </article>
   `).join("");
@@ -222,7 +265,7 @@ function renderTasks(tasks) {
 
 function renderEvents(events) {
   if (events.length === 0) {
-    elements.eventLog.innerHTML = `<div class="empty-state">No ledger events recorded.</div>`;
+    elements.eventLog.innerHTML = `<div class="empty-state">还没有事件记录。</div>`;
     return;
   }
   elements.eventLog.innerHTML = events.slice().reverse().map((event) => `

@@ -17,6 +17,14 @@ export function createMcpServer(service = createDefaultService()) {
     inputSchema: { objective: z.string().min(1) }
   }, ({ objective }) => service.planGoal({ objective }));
 
+  registerJsonTool(server, "butler_advance_goal", {
+    description: "Advance the next runnable step for a Butler goal, or continue up to maxSteps.",
+    inputSchema: {
+      goalId: z.string().min(1),
+      maxSteps: z.number().int().positive().optional()
+    }
+  }, ({ goalId, maxSteps }) => service.advanceGoal({ goalId, maxSteps }));
+
   registerJsonTool(server, "butler_create_task", {
     description: "Create a task owned by a specific worker role.",
     inputSchema: {
@@ -97,6 +105,11 @@ export function createMcpServer(service = createDefaultService()) {
       sessionIdOrThreadId: z.string().min(1)
     }
   }, ({ sessionIdOrThreadId }) => service.probeSession({ sessionIdOrThreadId }));
+
+  registerJsonTool(server, "butler_probe_sessions", {
+    description: "Probe every registered session and record current transport reachability.",
+    inputSchema: {}
+  }, () => service.probeAllSessions());
 
   registerJsonTool(server, "butler_status", {
     description: "Read Butler goals, tasks, states, and data location.",

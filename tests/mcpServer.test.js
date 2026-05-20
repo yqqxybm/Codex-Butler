@@ -20,11 +20,13 @@ test("MCP server exposes Butler tools and can submit a goal", async () => {
     const tools = await client.listTools();
     assert.ok(tools.tools.some((tool) => tool.name === "butler_submit_goal"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_plan_goal"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_advance_goal"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_dashboard"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_daemon_status"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_add_butler_session"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_sessions"));
     assert.ok(tools.tools.some((tool) => tool.name === "butler_probe_session"));
+    assert.ok(tools.tools.some((tool) => tool.name === "butler_probe_sessions"));
 
     const result = await client.callTool({
       name: "butler_submit_goal",

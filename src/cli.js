@@ -69,6 +69,16 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "advance-goal") {
+    const [goalId, ...rest] = args;
+    if (!goalId) throw new Error("usage: codex-butler advance-goal <goal-id> [--max-steps <n>]");
+    console.log(JSON.stringify(await createDefaultService().advanceGoal({
+      goalId,
+      maxSteps: parseMaxSteps(rest)
+    }), null, 2));
+    return 0;
+  }
+
   if (command === "create-task") {
     const [goalId, role, ...objectiveParts] = args;
     if (!goalId || !role || objectiveParts.length === 0) {
@@ -139,6 +149,11 @@ async function main(argv) {
     const [sessionIdOrThreadId] = args;
     if (!sessionIdOrThreadId) throw new Error("usage: codex-butler probe-session <session-id-or-thread-id>");
     console.log(JSON.stringify(await createDefaultService().probeSession({ sessionIdOrThreadId }), null, 2));
+    return 0;
+  }
+
+  if (command === "probe-sessions") {
+    console.log(JSON.stringify(await createDefaultService().probeAllSessions(), null, 2));
     return 0;
   }
 
@@ -246,6 +261,9 @@ Commands:
   plan-goal <objective>
     Compile a natural-language objective into an ordered Butler goal plan.
 
+  advance-goal <goal-id> [--max-steps <n>]
+    Advance the next runnable goal step, or continue up to max steps.
+
   create-task <goal-id> <role> <objective>
     Create a role-owned task under a goal.
 
@@ -273,6 +291,9 @@ Commands:
   probe-session <session-id-or-thread-id>
     Send a minimal turn to a managed session to verify current transport reachability.
 
+  probe-sessions
+    Probe every registered session and record reachability.
+
   status
     Print goals, tasks, and control-plane data location.
 
@@ -298,6 +319,16 @@ function parseWebArgs(argv) {
     else if (item === "--port") parsed.port = argv[++index];
   }
   return parsed;
+}
+
+function parseMaxSteps(argv) {
+  const index = argv.indexOf("--max-steps");
+  if (index === -1) return 1;
+  const value = Number(argv[index + 1]);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error("--max-steps must be a positive integer");
+  }
+  return value;
 }
 
 function parseLaunchdArgs(argv) {

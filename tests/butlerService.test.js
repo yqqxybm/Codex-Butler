@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { ButlerService } from "../src/butlerService.js";
+
+const execFileAsync = promisify(execFile);
 
 test("service creates goals, tasks, dispatches, verifies, and promotes no-diff tasks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
@@ -98,6 +102,41 @@ test("service blocks dispatch until prerequisites are verified or promoted", asy
     () => service.dispatchTask({ taskId: planned.tasks[1].id }),
     /unmet prerequisites/
   );
+});
+
+test("service advances a planned goal through the product pipeline", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  await initGitRepo(dir);
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => fakeClient({
+      status: "done",
+      evidence: { skill_read: "externally-verified", files_changed: [], commands_run: [] },
+      risks: []
+    })
+  });
+
+  const planned = await service.planGoal({
+    objective: "Build a no-diff feature",
+    verificationCommand: [process.execPath, "-e", "process.exit(0)"]
+  });
+  const result = await service.advanceGoal({ goalId: planned.goal.id, maxSteps: 10 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.goal.state, "done");
+  assert.deepEqual(result.actions.map((action) => action.action), [
+    "allocate-and-dispatch",
+    "dispatch",
+    "verify",
+    "promote",
+    "done"
+  ]);
+
+  const tasks = Object.fromEntries(result.tasks.map((task) => [task.ownerRole, task.state]));
+  assert.equal(tasks["iteration-worker"], "promoted");
+  assert.equal(tasks["review-worker"], "verified");
+  assert.equal(tasks.verifier, "verified");
+  assert.equal(tasks.promoter, "promoted");
 });
 
 test("verifier and promoter gate tasks target the implementation task", async () => {
@@ -204,6 +243,31 @@ test("service probes managed session reachability and records health", async () 
   assert.equal(events.at(-1).type, "session.probed");
 });
 
+test("service probes every managed session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => ({
+      async startTurn() {
+        return {
+          start: { turn: { id: "turn-start" } },
+          completed: { params: { turn: { id: "turn-probe", status: "completed" } } },
+          finalText: JSON.stringify({ status: "ok", role: "session-probe" })
+        };
+      },
+      close() {}
+    })
+  });
+
+  await service.addButlerSession({ threadId: "thread-one" });
+  await service.registerSession({ threadId: "thread-two", role: "worker-session" });
+
+  const result = await service.probeAllSessions();
+  assert.equal(result.ok, true);
+  assert.equal(result.total, 2);
+  assert.equal(result.reachable, 2);
+});
+
 test("service marks managed session unreachable when probe turn fails", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({
@@ -242,4 +306,13 @@ function fakeClient(result) {
     },
     close() {}
   };
+}
+
+async function initGitRepo(dir) {
+  await execFileAsync("git", ["init"], { cwd: dir });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+  await execFileAsync("git", ["config", "user.name", "Codex Test"], { cwd: dir });
+  await writeFile(join(dir, "README.md"), "# test\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: dir });
+  await execFileAsync("git", ["commit", "-m", "init"], { cwd: dir });
 }

@@ -1,121 +1,99 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Codex Butler</title>
+    <title>Codex Butler 管家台</title>
     <link rel="stylesheet" href="/assets/styles.css">
   </head>
   <body>
     <div class="app-shell">
-      <aside class="side-rail" aria-label="Workspace">
+      <aside class="side-rail" aria-label="工作区">
         <div class="brand-block">
           <div class="brand-mark" aria-hidden="true">CB</div>
           <div>
-            <p class="eyebrow">local control plane</p>
+            <p class="eyebrow">本地管家</p>
             <h1>Codex Butler</h1>
           </div>
         </div>
-        <nav class="rail-nav" aria-label="Sections">
-          <a href="#overview" class="active">Overview</a>
-          <a href="#goals">Goals</a>
-          <a href="#sessions">Sessions</a>
-          <a href="#tasks">Tasks</a>
-          <a href="#events">Events</a>
+        <nav class="rail-nav" aria-label="页面区域">
+          <a href="#overview" class="active">开始</a>
+          <a href="#goals">目标</a>
+          <a href="#sessions">会话</a>
+          <a href="#tasks">任务</a>
+          <a href="#events">记录</a>
         </nav>
         <div class="daemon-tile" id="daemonTile">
           <span class="status-dot neutral" aria-hidden="true"></span>
-          <span>Daemon unknown</span>
+          <span>后台状态未知</span>
         </div>
       </aside>
 
       <main class="workspace">
         <section class="topbar" id="overview">
           <div>
-            <p class="eyebrow">operator console</p>
-            <h2>Plan, monitor, and promote controlled Codex work.</h2>
+            <p class="eyebrow">产品工作台</p>
+            <h2>输入目标，检查可用会话，然后让 Butler 推进下一步。</h2>
           </div>
           <div class="topbar-actions">
-            <button class="button secondary" id="refreshButton" type="button">Refresh</button>
-            <button class="button secondary" id="startDaemonButton" type="button">Start Daemon</button>
-            <button class="button danger" id="stopDaemonButton" type="button">Stop</button>
+            <button class="button secondary" id="refreshButton" type="button">刷新</button>
+            <button class="button secondary" id="startDaemonButton" type="button">启动后台</button>
+            <button class="button danger" id="stopDaemonButton" type="button">停止</button>
           </div>
         </section>
 
-        <section class="planner-band" aria-label="Create a plan">
-          <form class="planner-form" id="plannerForm">
-            <label for="objectiveInput">New objective</label>
-            <div class="planner-row">
-              <input id="objectiveInput" name="objective" autocomplete="off" placeholder="Build a release workflow and verify it" required>
-              <button class="button primary" type="submit">Plan Goal</button>
+        <section class="hero-panel" aria-label="开始使用">
+          <form class="planner-form primary-flow" id="plannerForm">
+            <div>
+              <p class="eyebrow">第一步</p>
+              <label for="objectiveInput">输入这轮要完成的目标</label>
             </div>
-            <p class="helper-text" id="formHelp">Creates a goal plus role-owned tasks with prerequisites.</p>
-          </form>
-        </section>
-
-        <section class="planner-band" aria-label="Register an existing session">
-          <form class="planner-form" id="sessionForm">
-            <label for="sessionThreadInput">Existing session / thread</label>
             <div class="planner-row">
-              <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="Paste an existing Codex thread/session id" required>
-              <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="Butler label">
-              <button class="button primary" type="submit">Add Butler Session</button>
+              <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：把项目手册改成用户能直接照着操作的版本" required>
+              <button class="button primary" type="submit" data-plan-mode="run">生成并推进</button>
+              <button class="button secondary on-light" type="submit" data-plan-mode="plan">只生成计划</button>
             </div>
-            <p class="helper-text" id="sessionHelp">Registers a local existing session as the Butler controller; use Probe to verify reachability.</p>
+            <p class="helper-text" id="formHelp">默认会生成任务并自动推进第一个可执行步骤；后续在目标卡片点“继续推进”。</p>
           </form>
+          <div class="readiness-card">
+            <div>
+              <p class="eyebrow">会话可用性</p>
+              <strong id="readinessTitle">等待检查</strong>
+              <p id="readinessText">只有检查成功的会话才算可用；单纯登记不算。</p>
+            </div>
+            <button class="button secondary on-light" id="probeAllButton" type="button">检查全部会话</button>
+          </div>
         </section>
 
         <section class="metric-grid" aria-label="Summary metrics">
           <article class="metric-panel">
-            <span class="metric-label">Goals</span>
+            <span class="metric-label">目标</span>
             <strong id="goalCount">0</strong>
-            <small id="activeGoalCount">0 active</small>
+            <small id="activeGoalCount">0 个进行中</small>
           </article>
           <article class="metric-panel">
-            <span class="metric-label">Tasks</span>
+            <span class="metric-label">任务</span>
             <strong id="taskCount">0</strong>
-            <small id="queuedTaskCount">0 queued</small>
+            <small id="queuedTaskCount">0 个待执行</small>
           </article>
           <article class="metric-panel">
-            <span class="metric-label">Blocked</span>
+            <span class="metric-label">阻塞</span>
             <strong id="blockedCount">0</strong>
-            <small>goals and tasks</small>
+            <small>目标和任务</small>
           </article>
           <article class="metric-panel accent-panel">
-            <span class="metric-label">Sessions</span>
+            <span class="metric-label">可用会话</span>
             <strong id="sessionCount">0</strong>
-            <small id="butlerSessionCount">0 butler</small>
+            <small id="butlerSessionCount">0 个管家</small>
           </article>
-        </section>
-
-        <section class="system-map" aria-label="Control topology">
-          <div class="map-node">
-            <span>Butler</span>
-            <strong>MCP tools</strong>
-          </div>
-          <div class="map-link" aria-hidden="true"></div>
-          <div class="map-node">
-            <span>Service</span>
-            <strong>state + ledger</strong>
-          </div>
-          <div class="map-link" aria-hidden="true"></div>
-          <div class="map-node">
-            <span>Workers</span>
-            <strong>worktrees</strong>
-          </div>
-          <div class="map-link" aria-hidden="true"></div>
-          <div class="map-node">
-            <span>Gate</span>
-            <strong>verify + promote</strong>
-          </div>
         </section>
 
         <div class="content-grid">
           <section class="panel" id="goals">
             <div class="panel-header">
               <div>
-                <p class="eyebrow">intent queue</p>
-                <h3>Goals</h3>
+                <p class="eyebrow">执行入口</p>
+                <h3>目标</h3>
               </div>
             </div>
             <div class="list" id="goalsList"></div>
@@ -124,18 +102,24 @@
           <section class="panel" id="sessions">
             <div class="panel-header">
               <div>
-                <p class="eyebrow">managed local sessions</p>
-                <h3>Sessions</h3>
+                <p class="eyebrow">本机会话</p>
+                <h3>会话</h3>
               </div>
             </div>
+            <form class="compact-form" id="sessionForm">
+              <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="粘贴现有 Codex session/thread id" required>
+              <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
+              <button class="button secondary on-light" type="submit">添加管家会话</button>
+            </form>
+            <p class="helper-text" id="sessionHelp">添加后会出现在列表里；必须检查成功才算可用。</p>
             <div class="list" id="sessionsList"></div>
           </section>
 
           <section class="panel task-panel" id="tasks">
             <div class="panel-header">
               <div>
-                <p class="eyebrow">execution graph</p>
-                <h3>Tasks</h3>
+                <p class="eyebrow">细节</p>
+                <h3>任务</h3>
               </div>
             </div>
             <div class="task-table" id="taskTable"></div>
@@ -145,8 +129,8 @@
         <section class="panel" id="events">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">audit trail</p>
-              <h3>Recent events</h3>
+              <p class="eyebrow">动作记录</p>
+              <h3>最近事件</h3>
             </div>
           </div>
           <div class="event-log" id="eventLog"></div>
