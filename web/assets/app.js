@@ -73,12 +73,12 @@ elements.goalsList.addEventListener("click", async (event) => {
   if (!button) return;
   const goalId = button.dataset.goalId;
   const maxSteps = Number(button.dataset.maxSteps ?? 1);
-  await runAction(maxSteps > 1 ? "已自动推进到当前边界" : "已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
+  await runAction(maxSteps > 1 ? "已推进到当前可处理边界" : "已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
     body: JSON.stringify({ maxSteps })
   }), {
     button,
     pendingMessage: maxSteps > 1
-      ? "正在自动推进；会一直运行到完成、阻塞或需要返工。"
+      ? "正在推进目标；可恢复的交付错误会自动重跑一次。"
       : "正在推进下一步..."
   });
   await refresh();
@@ -94,11 +94,11 @@ elements.taskTable.addEventListener("click", async (event) => {
     dispatch: "任务已派发",
     verify: "验证已完成",
     promote: "提升已完成",
-    retry: "任务已重新排队"
+    retry: "这一步已重新排队"
   };
   await runAction(labels[action] ?? "任务已更新", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`), {
     button,
-    pendingMessage: action === "retry" ? "正在把任务放回待执行队列..." : "正在执行任务操作..."
+    pendingMessage: action === "retry" ? "正在重新跑这一步..." : "正在执行排障操作..."
   });
   await refresh();
 });
@@ -178,7 +178,7 @@ function render(data) {
   const queuedTasks = tasks.filter((task) => task.state === "queued");
   const blocked = [
     ...goals.filter((goal) => goal.state === "blocked"),
-    ...tasks.filter((task) => task.state === "blocked")
+    ...tasks.filter((task) => ["blocked", "rework", "failed"].includes(task.state))
   ];
   const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
   const usableSessions = sessions.filter((session) => ["reachable", "attached"].includes(session.health?.status));
@@ -189,10 +189,10 @@ function render(data) {
   elements.goalCount.textContent = goals.length;
   elements.activeGoalCount.textContent = `${activeGoals.length} 个进行中`;
   elements.taskCount.textContent = tasks.length;
-  elements.queuedTaskCount.textContent = `${queuedTasks.length} 个待执行`;
+  elements.queuedTaskCount.textContent = `${queuedTasks.length} 步等待推进`;
   elements.blockedCount.textContent = blocked.length;
   elements.sessionCount.textContent = sessions.length;
-  elements.butlerSessionCount.textContent = `${usableSessions.length} 可用，${butlerSessions.length} 个管家，${unreachableSessions.length} 个不可达`;
+  elements.butlerSessionCount.textContent = `${usableSessions.length} 个可复用，${unreachableSessions.length} 个不可达`;
   renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
   renderGoals(goals, data.goalProgress ?? {});
@@ -205,7 +205,7 @@ function renderDaemon(daemon) {
   const status = daemon?.status ?? "unknown";
   elements.daemonTile.innerHTML = `
     <span class="status-dot ${classForState(status)}" aria-hidden="true"></span>
-    <span>后台 ${escapeHtml(status)}${daemon?.pid ? ` · pid ${daemon.pid}` : ""}</span>
+    <span>${escapeHtml(daemonStatusLabel(status))}</span>
   `;
 }
 
@@ -213,72 +213,82 @@ function renderReadiness(sessions, usableSessions, attachedSessions, unreachable
   if (daemon?.status === "running") {
     elements.readinessTitle.textContent = "后台运行中";
     if (sessions.length === 0) {
-      elements.readinessText.textContent = "可以输入目标开始推进；添加已有 session 只用于复用或排障。";
+      elements.readinessText.textContent = "可以直接输入目标开始推进；已有会话复用只是高级能力。";
     } else {
-      elements.readinessText.textContent = `已登记 ${sessions.length} 个 session，${usableSessions.length} 个当前可复用，${unreachableSessions.length} 个不可达。`;
+      elements.readinessText.textContent = `${usableSessions.length} 个已有会话当前可复用；不可达会话不会阻止新目标推进。`;
     }
     return;
   }
   if (sessions.length === 0) {
-    elements.readinessTitle.textContent = "还没有会话";
-    elements.readinessText.textContent = "先启动后台；已有 session 可以登记后检查可复用性。";
+    elements.readinessTitle.textContent = "后台未运行";
+    elements.readinessText.textContent = "先点“启动后台”，再输入目标。";
     return;
   }
   if (usableSessions.length > 0) {
-    elements.readinessTitle.textContent = `${usableSessions.length} 个会话可用`;
+    elements.readinessTitle.textContent = `${usableSessions.length} 个已有会话可复用`;
     if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
-      elements.readinessText.textContent = `${attachedSessions.length} 个当前管家已附着，${unreachableSessions.length} 个会话不可达。`;
+      elements.readinessText.textContent = `${attachedSessions.length} 个当前会话已附着；${unreachableSessions.length} 个旧会话不可达。`;
     } else if (attachedSessions.length > 0) {
       elements.readinessText.textContent = "当前 Codex 会话已作为管家附着，可以在这里操作 Butler。";
     } else {
-      elements.readinessText.textContent = "transport 会话检查正常，可以参与后续调度。";
+      elements.readinessText.textContent = "已有会话检查正常，可以参与后续调度。";
     }
     return;
   }
-  elements.readinessTitle.textContent = "没有可用会话";
+  elements.readinessTitle.textContent = "后台未运行";
   elements.readinessText.textContent = unreachableSessions.length > 0
-    ? "所有已检查会话都不可达；不能把它们当作可调度 session。"
-    : "已登记会话尚未检查；点击“检查全部会话”。";
+    ? "先启动后台。已登记的旧会话目前不可复用，但不影响创建新目标。"
+    : "先启动后台；已有会话可稍后再检查。";
 }
 
 function renderGoals(goals, goalProgress) {
   if (goals.length === 0) {
-    elements.goalsList.innerHTML = `<div class="empty-state">还没有目标。输入目标后，Butler 会生成任务并给出下一步动作。</div>`;
+    elements.goalsList.innerHTML = `<div class="empty-state">还没有目标。输入一句你要完成的事，Butler 会拆任务并推进。</div>`;
     return;
   }
-  elements.goalsList.innerHTML = goals.map((goal) => `
-    <article class="goal-item">
-      <div class="item-meta">
-        <span class="pill ${classForState(goal.state)}">${escapeHtml(goal.state)}</span>
-        <span class="pill">${escapeHtml(shortId(goal.id))}</span>
-      </div>
+  elements.goalsList.innerHTML = goals.map((goal) => {
+    const progress = goalProgress[goal.id] ?? null;
+    return `
+    <article class="goal-item ${goalTone(progress)}">
+      <p class="eyebrow">当前目标</p>
       <p class="item-title">${escapeHtml(goal.objective)}</p>
-      <p class="item-subtitle">${goal.history?.length ?? 0} 条状态记录</p>
-      ${renderGoalDiagnosis(goalProgress[goal.id])}
+      ${renderGoalDiagnosis(progress)}
       <div class="row-actions">
-        <button class="mini-button primary-mini" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">继续推进</button>
-        <button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="20">自动推进</button>
+        <button class="mini-button primary-mini" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="20">${escapeHtml(primaryGoalAction(progress))}</button>
+        <button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">只推进一步</button>
       </div>
+      <details class="technical-details">
+        <summary>技术细节</summary>
+        <div class="item-meta">
+          <span class="pill ${classForState(goal.state)}">${escapeHtml(goal.state)}</span>
+          <span class="pill">${escapeHtml(shortId(goal.id))}</span>
+          <span class="pill">${goal.history?.length ?? 0} 条记录</span>
+        </div>
+      </details>
     </article>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderSessions(sessions) {
   if (sessions.length === 0) {
-    elements.sessionsList.innerHTML = `<div class="empty-state">还没有登记会话。粘贴一个本地 Codex session/thread id 后再检查可达性。</div>`;
+    elements.sessionsList.innerHTML = `<div class="empty-state">还没有登记已有会话。普通使用不需要先添加。</div>`;
     return;
   }
   elements.sessionsList.innerHTML = sessions.map((session) => `
     <article class="goal-item">
       <div class="item-meta">
-        <span class="pill ${session.role === "butler-controller" ? "good" : ""}">${escapeHtml(session.role)}</span>
-        <span class="pill">${escapeHtml(session.source)}</span>
-        <span class="pill">${escapeHtml(shortId(session.id))}</span>
+        <span class="pill ${session.role === "butler-controller" ? "good" : ""}">${escapeHtml(sessionRoleLabel(session.role))}</span>
+        <span class="pill ${classForState(session.health?.status)}">${escapeHtml(sessionHealthLabel(session.health?.status))}</span>
       </div>
       <p class="item-title">${escapeHtml(session.label)}</p>
-      <p class="item-subtitle">${escapeHtml(session.threadId)}${session.health ? ` · ${escapeHtml(session.health.status)}` : ""}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""}</p>
+      <p class="item-subtitle">${escapeHtml(sessionSummary(session))}</p>
+      <details class="technical-details">
+        <summary>技术细节</summary>
+        <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""} · ${escapeHtml(session.source)} · ${escapeHtml(shortId(session.id))}</p>
+      </details>
       <div class="row-actions">
-        <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">检查</button>
+        <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">检查可用性</button>
       </div>
     </article>
   `).join("");
@@ -286,20 +296,23 @@ function renderSessions(sessions) {
 
 function renderTasks(tasks) {
   if (tasks.length === 0) {
-    elements.taskTable.innerHTML = `<div class="empty-state">还没有任务。目标生成后，这里会显示实现、审查、验证和提升步骤。</div>`;
+    elements.taskTable.innerHTML = `<div class="empty-state">还没有内部步骤。目标开始后，这里只用于排障。</div>`;
     return;
   }
   elements.taskTable.innerHTML = tasks.map((task) => `
     <article class="task-row">
       <div>
         <div class="item-meta">
-          <span class="pill ${classForState(task.state)}">${escapeHtml(task.state)}</span>
-          <span class="pill">${escapeHtml(task.ownerRole)}</span>
-          <span class="pill">${escapeHtml(shortId(task.id))}</span>
+          <span class="pill ${classForState(task.state)}">${escapeHtml(taskStateLabel(task.state))}</span>
+          <span class="pill">${escapeHtml(taskRoleLabel(task.ownerRole))}</span>
         </div>
         <p class="item-title">${escapeHtml(task.objective)}</p>
-        <p class="item-subtitle">${task.targetTaskId ? `目标 ${shortId(task.targetTaskId)}` : "直接任务"}${taskUsesWorktree(task) && task.worktreePath ? " · 工作区已准备" : ""}</p>
+        <p class="item-subtitle">${task.targetTaskId ? "依赖上一步结果" : "独立步骤"}${taskUsesWorktree(task) && task.worktreePath ? " · 已准备隔离工作区" : ""}</p>
         ${renderTaskIssue(task)}
+        <details class="technical-details">
+          <summary>技术细节</summary>
+          <p class="item-subtitle">${escapeHtml(task.ownerRole)} · ${escapeHtml(task.state)} · ${escapeHtml(shortId(task.id))}${task.targetTaskId ? ` · target ${escapeHtml(shortId(task.targetTaskId))}` : ""}</p>
+        </details>
       </div>
       ${renderTaskActions(task)}
     </article>
@@ -308,12 +321,16 @@ function renderTasks(tasks) {
 
 function renderGoalDiagnosis(progress) {
   if (!progress) return "";
-  const tone = progress.status === "stalled" ? "bad" : progress.status === "complete" ? "good" : "warn";
+  const tone = goalTone(progress);
   const details = (progress.details ?? []).slice(0, 3);
+  const title = goalStatusTitle(progress);
+  const text = goalStatusText(progress);
   return `
     <div class="diagnosis ${tone}">
-      <strong>${escapeHtml(progress.message)}</strong>
-      ${details.length > 1 ? `<ul>${details.slice(1).map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>` : ""}
+      <span class="diagnosis-label">现在状态</span>
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(text)}</p>
+      ${details.length > 0 ? `<details><summary>错误原文</summary><ul>${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul></details>` : ""}
     </div>
   `;
 }
@@ -335,7 +352,7 @@ function renderTaskIssue(task) {
 function renderTaskActions(task) {
   const buttons = [];
   if (["rework", "blocked"].includes(task.state)) {
-    buttons.push(taskButton(task, "retry", "重试", true));
+    buttons.push(taskButton(task, "retry", "重新跑这一步", true));
   } else if (task.state === "queued") {
     if (taskUsesWorktree(task) && !task.worktreePath) {
       buttons.push(taskButton(task, "allocate-worktree", "准备工作区"));
@@ -367,6 +384,49 @@ function taskButton(task, action, label, primary = false) {
 
 function taskUsesWorktree(task) {
   return ["iteration-worker", "refine-worker"].includes(task.ownerRole);
+}
+
+function goalTone(progress) {
+  if (!progress) return "warn";
+  if (progress.status === "complete") return "good";
+  if (progress.status === "stalled" && !canAutoRecover(progress)) return "bad";
+  return "warn";
+}
+
+function goalStatusTitle(progress) {
+  if (!progress) return "等待开始";
+  if (progress.status === "complete") return "已完成";
+  if (progress.status === "runnable") return "可以继续推进";
+  if (progress.status === "active") return "正在处理";
+  if (progress.status === "waiting") return "等待前置步骤";
+  if (progress.status === "stalled" && canAutoRecover(progress)) return "可自动修复";
+  if (progress.status === "stalled") return "需要处理";
+  return "等待任务";
+}
+
+function goalStatusText(progress) {
+  if (!progress) return "输入目标后，Butler 会开始生成执行链。";
+  if (progress.status === "complete") return "目标链路已经跑完。需要查看细节时再展开排障区。";
+  if (progress.status === "runnable") return "下一步已经准备好。推荐点“继续自动推进”，让 Butler 处理到完成或明确边界。";
+  if (progress.status === "active") return "Butler 正在处理这一轮，稍后会自动刷新状态。";
+  if (progress.status === "waiting") return "前置步骤还没有完成。等上一轮结果回来后继续推进。";
+  if (progress.status === "stalled" && canAutoRecover(progress)) {
+    return "这一步返回的格式不合格，不是你要手动排查的问题。点“自动修复并继续”，Butler 会重新跑这一轮并继续推进。";
+  }
+  if (progress.status === "stalled") {
+    return "Butler 已处理到当前边界，但这一步仍没有给出合格交付。先展开错误原文确认原因，再决定重新规划或人工处理。";
+  }
+  return progress.message;
+}
+
+function primaryGoalAction(progress) {
+  if (progress?.status === "stalled" && canAutoRecover(progress)) return "自动修复并继续";
+  if (progress?.status === "complete") return "查看结果";
+  return "继续自动推进";
+}
+
+function canAutoRecover(progress) {
+  return Boolean(progress?.recoverable) && Number(progress?.recoveries ?? 0) < 1;
 }
 
 function renderEvents(events) {
@@ -401,10 +461,70 @@ function formatTime(value) {
 function stoppedResultMessage(result) {
   const target = result?.advanced ?? result;
   if (!target || target.ok !== false) return null;
+  if (target.actions?.some((action) => action.action === "auto-retry")) {
+    return "Butler 已自动重跑一次，但同一步仍未给出合格交付。请展开错误原文查看原因。";
+  }
   return target.progress?.message
     ?? target.actions?.at?.(-1)?.progress?.message
     ?? target.actions?.at?.(-1)?.reason
     ?? "已停止：没有可执行的下一步。";
+}
+
+function daemonStatusLabel(status) {
+  if (status === "running") return "后台运行中";
+  if (status === "stopped") return "后台已停止";
+  if (status === "stale") return "后台状态待刷新";
+  return "后台状态未知";
+}
+
+function sessionRoleLabel(role) {
+  if (role === "butler-controller") return "管家";
+  if (role === "worker-session") return "执行会话";
+  return role;
+}
+
+function sessionHealthLabel(status) {
+  if (status === "reachable") return "可复用";
+  if (status === "attached") return "当前会话";
+  if (status === "unreachable") return "不可达";
+  return "未检查";
+}
+
+function sessionSummary(session) {
+  const health = sessionHealthLabel(session.health?.status);
+  if (session.health?.status === "unreachable") return "这个旧会话现在不可复用，不影响新目标推进。";
+  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话已接入 Butler。";
+  if (session.health?.status === "reachable") return "这个已有会话当前可复用。";
+  return `${health}；需要时可以检查可用性。`;
+}
+
+function taskStateLabel(state) {
+  const labels = {
+    queued: "等待推进",
+    leased: "已领取",
+    dispatched: "已派发",
+    awaiting_result: "等待结果",
+    validating: "等待验证",
+    review: "审查中",
+    verified: "已验证",
+    promoted: "已交付",
+    rework: "需重跑",
+    blocked: "已阻塞",
+    failed: "失败"
+  };
+  return labels[state] ?? state;
+}
+
+function taskRoleLabel(role) {
+  const labels = {
+    "analysis-worker": "分析",
+    "iteration-worker": "实现",
+    "review-worker": "审查",
+    "refine-worker": "优化",
+    verifier: "验证",
+    promoter: "收尾"
+  };
+  return labels[role] ?? role;
 }
 
 function taskIssueDetails(task) {

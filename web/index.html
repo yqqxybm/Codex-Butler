@@ -19,9 +19,9 @@
         <nav class="rail-nav" aria-label="页面区域">
           <a href="#overview" class="active">开始</a>
           <a href="#goals">目标</a>
-          <a href="#sessions">会话</a>
-          <a href="#tasks">任务</a>
-          <a href="#events">记录</a>
+          <a href="#sessions">高级</a>
+          <a href="#tasks">排障</a>
+          <a href="#events">日志</a>
         </nav>
         <div class="daemon-tile" id="daemonTile">
           <span class="status-dot neutral" aria-hidden="true"></span>
@@ -33,7 +33,7 @@
         <section class="topbar" id="overview">
           <div>
             <p class="eyebrow">产品工作台</p>
-            <h2>输入目标，让 Butler 规划、推进、审查并显示停住原因。</h2>
+            <h2>告诉 Butler 你要完成什么，它会安排执行、审查，并在卡住时给出下一步。</h2>
           </div>
           <div class="topbar-actions">
             <button class="button secondary" id="refreshButton" type="button">刷新</button>
@@ -53,15 +53,15 @@
               <button class="button primary" type="submit" data-plan-mode="run">生成并推进</button>
               <button class="button secondary on-light" type="submit" data-plan-mode="plan">只生成计划</button>
             </div>
-            <p class="helper-text" id="formHelp">默认会生成任务并自动推进第一个可执行步骤；后续在目标卡片点“继续推进”。</p>
+            <p class="helper-text" id="formHelp">日常只看“当前目标”卡片。内部步骤只在排障时展开。</p>
           </form>
           <div class="readiness-card">
             <div>
-              <p class="eyebrow">后台与会话</p>
+              <p class="eyebrow">运行环境</p>
               <strong id="readinessTitle">等待检查</strong>
-              <p id="readinessText">后台负责推进目标；会话检查用于确认已登记 session 能否复用。</p>
+              <p id="readinessText">后台负责推进目标；会话复用是高级选项，不影响你直接输入新目标。</p>
             </div>
-            <button class="button secondary on-light" id="probeAllButton" type="button">检查全部会话</button>
+            <button class="button secondary on-light" id="probeAllButton" type="button">检查会话可用性</button>
           </div>
         </section>
 
@@ -72,17 +72,17 @@
             <small id="activeGoalCount">0 个进行中</small>
           </article>
           <article class="metric-panel">
-            <span class="metric-label">任务</span>
+            <span class="metric-label">待推进</span>
             <strong id="taskCount">0</strong>
             <small id="queuedTaskCount">0 个待执行</small>
           </article>
           <article class="metric-panel">
-            <span class="metric-label">阻塞</span>
+            <span class="metric-label">需要处理</span>
             <strong id="blockedCount">0</strong>
-            <small>目标和任务</small>
+            <small>需要你处理的卡点</small>
           </article>
           <article class="metric-panel accent-panel">
-            <span class="metric-label">会话记录</span>
+            <span class="metric-label">会话可用性</span>
             <strong id="sessionCount">0</strong>
             <small id="butlerSessionCount">0 个管家</small>
           </article>
@@ -92,49 +92,52 @@
           <section class="panel" id="goals">
             <div class="panel-header">
               <div>
-                <p class="eyebrow">执行入口</p>
-                <h3>目标</h3>
+                <p class="eyebrow">主操作区</p>
+                <h3>当前目标</h3>
               </div>
             </div>
             <div class="list" id="goalsList"></div>
           </section>
 
-          <section class="panel" id="sessions">
-            <div class="panel-header">
+          <details class="panel disclosure-panel" id="sessions">
+            <summary class="panel-header">
               <div>
-                <p class="eyebrow">本机会话</p>
-                <h3>会话</h3>
+                <p class="eyebrow">高级选项</p>
+                <h3>已有会话复用</h3>
               </div>
-            </div>
+              <span class="summary-hint">默认不用管</span>
+            </summary>
             <form class="compact-form" id="sessionForm">
               <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="粘贴现有 Codex session/thread id" required>
               <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
               <button class="button secondary on-light" type="submit">添加管家会话</button>
             </form>
-            <p class="helper-text" id="sessionHelp">这里管理已有 session。检查成功表示它当前可复用；失败只影响复用，不代表网页不能推进新目标。</p>
+            <p class="helper-text" id="sessionHelp">这里只用于复用已有 Codex 会话。检查失败不影响你在网页里推进新目标。</p>
             <div class="list" id="sessionsList"></div>
-          </section>
+          </details>
 
-          <section class="panel task-panel" id="tasks">
-            <div class="panel-header">
+          <details class="panel task-panel disclosure-panel" id="tasks">
+            <summary class="panel-header">
               <div>
-                <p class="eyebrow">细节</p>
-                <h3>任务</h3>
+                <p class="eyebrow">排障用</p>
+                <h3>内部步骤</h3>
               </div>
-            </div>
+              <span class="summary-hint">卡住时再看</span>
+            </summary>
             <div class="task-table" id="taskTable"></div>
-          </section>
+          </details>
         </div>
 
-        <section class="panel" id="events">
-          <div class="panel-header">
+        <details class="panel disclosure-panel" id="events">
+          <summary class="panel-header">
             <div>
               <p class="eyebrow">动作记录</p>
               <h3>最近事件</h3>
             </div>
-          </div>
+            <span class="summary-hint">审计日志</span>
+          </summary>
           <div class="event-log" id="eventLog"></div>
-        </section>
+        </details>
       </main>
     </div>
 

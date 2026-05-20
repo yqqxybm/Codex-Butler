@@ -416,8 +416,47 @@ input {
 .panel-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: var(--space-4);
   margin-bottom: var(--space-4);
+}
+
+.disclosure-panel > summary {
+  list-style: none;
+  cursor: pointer;
+  margin: calc(var(--space-5) * -1);
+  padding: var(--space-5);
+}
+
+.disclosure-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure-panel > summary::after {
+  content: "+";
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  display: grid;
+  place-items: center;
+  color: var(--color-text-secondary);
+  font-weight: 800;
+}
+
+.disclosure-panel[open] > summary {
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.disclosure-panel[open] > summary::after {
+  content: "-";
+}
+
+.summary-hint {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 800;
 }
 
 .list,
@@ -442,6 +481,18 @@ input {
   padding: var(--space-4);
   display: grid;
   gap: var(--space-3);
+}
+
+.goal-item.good {
+  border-left: 4px solid var(--color-success);
+}
+
+.goal-item.warn {
+  border-left: 4px solid var(--color-warning);
+}
+
+.goal-item.bad {
+  border-left: 4px solid var(--color-error);
 }
 
 .task-row {
@@ -510,10 +561,45 @@ input {
   overflow-wrap: anywhere;
 }
 
+.diagnosis p {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+}
+
+.diagnosis-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .diagnosis ul {
   margin: var(--space-2) 0 0;
   padding-left: var(--space-4);
   color: var(--color-text-secondary);
+}
+
+.diagnosis details {
+  margin-top: var(--space-3);
+}
+
+.diagnosis summary,
+.technical-details summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.technical-details {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.technical-details .item-meta {
+  margin-top: var(--space-2);
 }
 
 .diagnosis.good {

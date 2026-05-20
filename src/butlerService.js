@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { EventLedger } from "./ledger.js";
 import { StateStore } from "./stateStore.js";
 import { createGoal, createTask, transition } from "./stateMachine.js";
@@ -365,6 +366,17 @@ export class ButlerService {
 
       if (!task) {
         const progress = describeGoalProgress(state, goal.id);
+        if (progress.recoverable && autoRecoverCount(state.tasks[progress.taskId]) < 1) {
+          const retried = await this.retryTask({ taskId: progress.taskId, source: "auto-retry" });
+          actions.push({
+            action: "auto-retry",
+            ok: true,
+            taskId: retried.id,
+            state: retried.state,
+            reason: "recoverable worker handoff issue was requeued automatically"
+          });
+          continue;
+        }
         actions.push({
           action: progress.complete ? "done" : "blocked",
           ok: progress.complete,
@@ -379,6 +391,21 @@ export class ButlerService {
       const action = await this.advanceTask(task);
       actions.push(action);
       await this.refreshGoalState(normalizedGoalId);
+      if (action.ok === false) {
+        const nextState = await this.state.load();
+        const failedTask = nextState.tasks[action.taskId];
+        if (isRecoverableTask(failedTask) && autoRecoverCount(failedTask) < 1) {
+          const retried = await this.retryTask({ taskId: failedTask.id, source: "auto-retry" });
+          actions.push({
+            action: "auto-retry",
+            ok: true,
+            taskId: retried.id,
+            state: retried.state,
+            reason: "recoverable worker handoff issue was requeued automatically"
+          });
+          continue;
+        }
+      }
       if (action.ok === false) break;
     }
 
@@ -465,6 +492,11 @@ export class ButlerService {
       ownedScope: task.ownedScope,
       targetTaskId: task.targetTaskId
     });
+    const skillSource = await loadRequiredSkill(workOrder);
+    if (skillSource.ok) {
+      workOrder.requiredSkillLoaded = true;
+      workOrder.requiredSkillDigest = skillSource.digest;
+    }
 
     task = transition(task, "leased", { workOrder });
     task.leaseId = `lease-${randomUUID()}`;
@@ -479,7 +511,7 @@ export class ButlerService {
     const sandboxPolicy = task.worktreePath
       ? { type: "workspaceWrite", networkAccess: false, writableRoots: [task.worktreePath] }
       : { type: "readOnly", networkAccess: false };
-    const prompt = workerPrompt(workOrder);
+    const prompt = workerPrompt(workOrder, skillSource);
     try {
       const thread = await client.startEphemeralThread(workerCwd, {
         sandbox: task.worktreePath ? "workspace-write" : "read-only"
@@ -491,35 +523,56 @@ export class ButlerService {
         cwd: workerCwd,
         sandboxPolicy
       });
-      const parsedRaw = parseJson(turn.finalText);
-      const transcriptEvidence = extractSkillReadEvidence({
-        requiredSkill: workOrder.requiredSkill,
-        promptText: prompt,
-        finalText: turn.finalText,
-        notifications: turn.notifications
-      });
-      const parsed = applyTranscriptEvidence(parsedRaw, transcriptEvidence);
-      const validation = validateWorkerResult(workOrder, parsed);
+      const handoff = await this.parseWorkerHandoff({ turn, workOrder, prompt, client, threadId: thread.thread.id, workerCwd, sandboxPolicy });
       task.threadId = thread.thread.id;
-      task.turnId = turn.completed.params?.turn?.id ?? null;
-      task.handoff = { result: parsed, validation, transcriptEvidence };
-      if (parsed?.status === "blocked") {
-        task = transition(task, "blocked", { validation });
+      task.turnId = handoff.turnId;
+      task.handoff = handoff.handoff;
+      if (handoff.parsed?.status === "blocked") {
+        task = transition(task, "blocked", { validation: handoff.validation });
       } else {
-        task = transition(task, "validating", { validation });
-        if (!validation.ok || parsed?.status === "needs_rework") {
-          task = transition(task, "rework", { validation });
+        task = transition(task, "validating", { validation: handoff.validation });
+        if (!handoff.validation.ok || handoff.parsed?.status === "needs_rework") {
+          task = transition(task, "rework", { validation: handoff.validation });
         } else if (task.ownerRole === "analysis-worker" || task.ownerRole === "review-worker") {
-          task = transition(task, "verified", { validation });
+          task = transition(task, "verified", { validation: handoff.validation });
         }
       }
       state.tasks[taskId] = task;
       await this.state.save(state);
-      await this.ledger.append("task.handoff_received", { taskId, threadId: task.threadId, turnId: task.turnId, validation });
+      await this.ledger.append("task.handoff_received", { taskId, threadId: task.threadId, turnId: task.turnId, validation: handoff.validation });
       return task;
     } finally {
       client.close();
     }
+  }
+
+  async parseWorkerHandoff({ turn, workOrder, prompt, client, threadId, workerCwd, sandboxPolicy }) {
+    const handoff = buildHandoff({ turn, workOrder, prompt });
+    if (handoff.validation.ok || !isMalformedWorkerHandoff(handoff)) {
+      return handoff;
+    }
+
+    const repairPrompt = [
+      "Your previous answer could not be accepted by codex-butler.",
+      "Return only JSON matching the outputSchema in the work order. No Markdown, no prose.",
+      "If the task cannot be completed from the available context, use status \"blocked\" and explain the blocker in risks.",
+      `Work order:\n${JSON.stringify(workOrder, null, 2)}`
+    ].join("\n\n");
+    const repairTurn = await client.startTurn({
+      threadId,
+      inputText: repairPrompt,
+      outputSchema: WORKER_OUTPUT_SCHEMA,
+      cwd: workerCwd,
+      sandboxPolicy,
+      timeoutMs: 120000
+    });
+    const repaired = buildHandoff({
+      turn: repairTurn,
+      workOrder,
+      prompt: repairPrompt,
+      repairedFromTurnId: handoff.turnId
+    });
+    return repaired.validation.ok ? repaired : handoff;
   }
 
   async allocateTaskWorktree({ taskId }) {
@@ -614,14 +667,14 @@ export class ButlerService {
     return { ok: true, task, targetTask, result };
   }
 
-  async retryTask({ taskId }) {
+  async retryTask({ taskId, source = "manual-retry" }) {
     const state = await this.state.load();
     let task = requiredTask(state, taskId);
     if (!["rework", "blocked"].includes(task.state)) {
       throw new Error(`Task ${taskId} cannot be retried from state ${task.state}`);
     }
     const previousState = task.state;
-    task = transition(task, "queued", { source: "manual-retry", previousState });
+    task = transition(task, "queued", { source, previousState });
     task.leaseId = null;
     delete task.threadId;
     delete task.turnId;
@@ -629,7 +682,7 @@ export class ButlerService {
     delete task.verification;
     state.tasks[taskId] = task;
     await this.state.save(state);
-    await this.ledger.append("task.requeued", { taskId, previousState });
+    await this.ledger.append("task.requeued", { taskId, previousState, source });
     await this.refreshGoalState(task.goalId);
     return task;
   }
@@ -750,7 +803,7 @@ function describeGoalProgress(state, goalId) {
     return {
       status: "runnable",
       complete: false,
-      message: `下一步可推进：${runnable.ownerRole} / ${shortTaskId(runnable.id)}。`,
+      message: "下一步已经准备好，可以继续推进。",
       taskId: runnable.id,
       taskState: runnable.state,
       ownerRole: runnable.ownerRole,
@@ -761,13 +814,19 @@ function describeGoalProgress(state, goalId) {
   const stalled = tasks.find((task) => ["rework", "blocked", "failed"].includes(task.state));
   if (stalled) {
     const details = taskIssueDetails(stalled);
+    const recoverable = isRecoverableTask(stalled);
+    const recoveries = autoRecoverCount(stalled);
     return {
       status: "stalled",
       complete: false,
-      message: `自动推进已停止：${stalled.ownerRole} / ${shortTaskId(stalled.id)} 处于 ${stalled.state}${details[0] ? `，${details[0]}` : "。"}`,
+      message: recoverable && recoveries < 1
+        ? "这一步交付格式不合格，但可以自动重跑一次。"
+        : `自动推进已停止：这一步仍未给出合格交付${details[0] ? `，${details[0]}` : "。"}`,
       taskId: stalled.id,
       taskState: stalled.state,
       ownerRole: stalled.ownerRole,
+      recoverable,
+      recoveries,
       details
     };
   }
@@ -779,7 +838,7 @@ function describeGoalProgress(state, goalId) {
     return {
       status: "waiting",
       complete: false,
-      message: `当前没有可推进任务：${waiting.ownerRole} / ${shortTaskId(waiting.id)} 等待前置任务 ${unmetPrerequisites.map(shortTaskId).join(", ") || "完成"}。`,
+      message: "当前步骤还在等待前置结果完成。",
       taskId: waiting.id,
       taskState: waiting.state,
       ownerRole: waiting.ownerRole,
@@ -793,7 +852,7 @@ function describeGoalProgress(state, goalId) {
     return {
       status: "active",
       complete: false,
-      message: `任务正在处理中：${active.ownerRole} / ${shortTaskId(active.id)} 当前是 ${active.state}。`,
+      message: "Butler 正在处理当前步骤。",
       taskId: active.id,
       taskState: active.state,
       ownerRole: active.ownerRole,
@@ -823,6 +882,18 @@ function taskIssueDetails(task) {
   }
   for (const risk of risks) details.push(`risk: ${risk}`);
   return details;
+}
+
+function isRecoverableTask(task) {
+  if (!task || task.state !== "rework") return false;
+  const errors = taskIssueDetails(task);
+  return errors.some((error) => /status must be|evidence\.skill_read|files_changed|commands_run|risks must|externally verified/i.test(error));
+}
+
+function autoRecoverCount(task) {
+  return (task?.history ?? []).filter((event) => event.from === "rework"
+    && event.to === "queued"
+    && event.evidence?.source === "auto-retry").length;
 }
 
 function latestHistoryValidationErrors(task) {
@@ -868,12 +939,82 @@ function needsWorktree(task) {
   return ["iteration-worker", "refine-worker"].includes(task.ownerRole);
 }
 
+async function loadRequiredSkill(workOrder) {
+  if (!workOrder.requiredSkillPath) {
+    return { ok: true, content: "", digest: null, reason: "no required skill" };
+  }
+  try {
+    const content = await readFile(workOrder.requiredSkillPath, "utf8");
+    return {
+      ok: true,
+      path: workOrder.requiredSkillPath,
+      content,
+      digest: createHash("sha256").update(content).digest("hex")
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      path: workOrder.requiredSkillPath,
+      content: "",
+      digest: null,
+      reason: error.message
+    };
+  }
+}
+
+function buildHandoff({ turn, workOrder, prompt, repairedFromTurnId = null }) {
+  const parsedRaw = parseJson(turn.finalText);
+  const transcriptEvidence = extractSkillReadEvidence({
+    requiredSkill: workOrder.requiredSkill,
+    promptText: prompt,
+    finalText: turn.finalText,
+    notifications: turn.notifications
+  });
+  const parsed = applyTranscriptEvidence(parsedRaw, transcriptEvidence);
+  const validation = validateWorkerResult(workOrder, parsed);
+  const turnId = turn.completed.params?.turn?.id ?? null;
+  return {
+    parsed,
+    validation,
+    turnId,
+    handoff: {
+      result: parsed,
+      validation,
+      transcriptEvidence,
+      rawFinalText: validation.ok ? undefined : turn.finalText,
+      repairedFromTurnId
+    }
+  };
+}
+
+function isMalformedWorkerHandoff(handoff) {
+  if (!handoff.parsed) return true;
+  const errors = handoff.validation.errors ?? [];
+  return errors.some((error) => /status must be|evidence\.skill_read|files_changed|commands_run|risks must/i.test(error));
+}
+
 function parseJson(text) {
   try {
-    return text ? JSON.parse(text) : null;
+    if (!text) return null;
+    return JSON.parse(text);
   } catch {
-    return null;
+    const extracted = extractJsonObject(text);
+    if (!extracted) return null;
+    try {
+      return JSON.parse(extracted);
+    } catch {
+      return null;
+    }
   }
+}
+
+function extractJsonObject(text) {
+  const match = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (match) return match[1].trim();
+  const first = String(text).indexOf("{");
+  const last = String(text).lastIndexOf("}");
+  if (first === -1 || last <= first) return null;
+  return String(text).slice(first, last + 1);
 }
 
 function requiredText(value, name) {
@@ -953,13 +1094,19 @@ function completeGateTask(task, gate, evidence) {
   return next;
 }
 
-function workerPrompt(workOrder) {
-  return [
+function workerPrompt(workOrder, skillSource = { ok: false }) {
+  const parts = [
     "You are a Codex worker session controlled by codex-butler.",
     "Follow the work order exactly. Do not ask the user directly.",
-    "If requiredSkillPath is present, first read that exact SKILL.md path with a tool before doing the task. A text claim is not enough; Butler validates external transcript evidence.",
-    "Include the skill-read command in evidence.commands_run and return only JSON matching the output schema.",
+    "The controller may load the required skill below. Follow those loaded instructions as binding task policy.",
+    "Return only JSON matching the provided output schema. No Markdown, no prose, no explanation outside the JSON.",
     "If ownedScope is a worktree path, edit only inside that owned scope.",
     `Work order:\n${JSON.stringify(workOrder, null, 2)}`
-  ].join("\n\n");
+  ];
+  if (skillSource.ok && skillSource.content) {
+    parts.push(`Controller-loaded required skill from ${skillSource.path}:\n\n${skillSource.content}`);
+  } else if (workOrder.requiredSkillPath) {
+    parts.push(`Required skill could not be loaded from ${workOrder.requiredSkillPath}: ${skillSource.reason ?? "unknown error"}. If this blocks the task, return status "blocked" with the reason in risks.`);
+  }
+  return parts.join("\n\n");
 }

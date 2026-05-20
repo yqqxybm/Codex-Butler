@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -40,15 +40,11 @@ test("service creates goals, tasks, dispatches, verifies, and promotes no-diff t
   assert.equal(promoted.task.state, "promoted");
 });
 
-test("service routes invalid skill evidence to rework", async () => {
+test("service routes malformed worker handoff to rework", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({
     projectRoot: dir,
-    clientFactory: () => fakeClient({
-      status: "done",
-      evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
-      risks: []
-    })
+    clientFactory: () => fakeClient(malformedWorkerResult())
   });
 
   const goal = await service.submitGoal({ objective: "exercise rework path" });
@@ -59,7 +55,64 @@ test("service routes invalid skill evidence to rework", async () => {
   });
   const dispatched = await service.dispatchTask({ taskId: task.id });
   assert.equal(dispatched.state, "rework");
-  assert.match(dispatched.handoff.validation.errors.join("\n"), /externally verified/);
+  assert.match(dispatched.handoff.validation.errors.join("\n"), /status must be/);
+});
+
+test("service repairs malformed worker handoff with a structured follow-up turn", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => fakeClientSequence([
+      "I cannot return the handoff yet.",
+      {
+        status: "done",
+        evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+        risks: []
+      }
+    ])
+  });
+
+  const goal = await service.submitGoal({ objective: "exercise repair path" });
+  const task = await service.createTask({
+    goalId: goal.id,
+    role: "verifier",
+    objective: "return a valid structured handoff after repair"
+  });
+  const dispatched = await service.dispatchTask({ taskId: task.id });
+  assert.equal(dispatched.state, "validating");
+  assert.equal(dispatched.handoff.repairedFromTurnId, "turn-test-1");
+});
+
+test("service accepts declared skill evidence when Butler loaded the required skill", async () => {
+  const previousCodexHome = process.env.CODEX_HOME;
+  const codexHome = await mkdtemp(join(tmpdir(), "codex-butler-home-"));
+  await mkdir(join(codexHome, "skills", "review"), { recursive: true });
+  await writeFile(join(codexHome, "skills", "review", "SKILL.md"), "# Review\n");
+  process.env.CODEX_HOME = codexHome;
+  try {
+    const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+    const service = new ButlerService({
+      projectRoot: dir,
+      clientFactory: () => fakeClient({
+        status: "done",
+        evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+        risks: []
+      })
+    });
+
+    const goal = await service.submitGoal({ objective: "exercise loaded skill path" });
+    const task = await service.createTask({
+      goalId: goal.id,
+      role: "review-worker",
+      objective: "use controller-loaded review skill"
+    });
+    const dispatched = await service.dispatchTask({ taskId: task.id });
+    assert.equal(dispatched.state, "verified");
+    assert.equal(dispatched.history[0].evidence.workOrder.requiredSkillLoaded, true);
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+  }
 });
 
 test("failed verifier records failure event and routes task to rework", async () => {
@@ -144,11 +197,7 @@ test("service reports stalled goal progress when auto-advance hits rework", asyn
   await initGitRepo(dir);
   const service = new ButlerService({
     projectRoot: dir,
-    clientFactory: () => fakeClient({
-      status: "done",
-      evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
-      risks: []
-    })
+    clientFactory: () => fakeClient(malformedWorkerResult())
   });
 
   const planned = await service.planGoal({
@@ -161,18 +210,15 @@ test("service reports stalled goal progress when auto-advance hits rework", asyn
   assert.equal(result.progress.status, "stalled");
   assert.equal(result.progress.taskState, "rework");
   assert.match(result.progress.message, /自动推进已停止/);
-  assert.match(result.progress.details.join("\n"), /externally verified/);
+  assert.match(result.progress.details.join("\n"), /status must be/);
+  assert.ok(result.actions.some((action) => action.action === "auto-retry"));
 });
 
 test("service can retry a task stopped in rework", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({
     projectRoot: dir,
-    clientFactory: () => fakeClient({
-      status: "done",
-      evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
-      risks: []
-    })
+    clientFactory: () => fakeClient(malformedWorkerResult())
   });
 
   const goal = await service.submitGoal({ objective: "exercise retry path" });
@@ -402,17 +448,32 @@ test("service marks managed session unreachable when probe turn fails", async ()
 });
 
 function fakeClient(result) {
+  return fakeClientSequence([result]);
+}
+
+function fakeClientSequence(results) {
+  let index = 0;
   return {
     async startEphemeralThread() {
       return { thread: { id: "thread-test" } };
     },
     async startTurn() {
+      const result = results[Math.min(index, results.length - 1)];
+      index += 1;
       return {
-        completed: { params: { turn: { id: "turn-test", status: "completed" } } },
-        finalText: JSON.stringify(result)
+        completed: { params: { turn: { id: `turn-test-${index}`, status: "completed" } } },
+        finalText: typeof result === "string" ? result : JSON.stringify(result)
       };
     },
     close() {}
+  };
+}
+
+function malformedWorkerResult() {
+  return {
+    status: "bad",
+    evidence: { skill_read: "bad" },
+    risks: null
   };
 }
 

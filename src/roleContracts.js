@@ -129,7 +129,7 @@ export function validateWorkerResult(workOrder, result) {
   if (!EVIDENCE_LEVELS.includes(result?.evidence?.skill_read)) {
     errors.push("evidence.skill_read must be a known evidence level");
   }
-  if (workOrder.requiredSkill && result?.evidence?.skill_read !== "externally-verified") {
+  if (workOrder.requiredSkill && !workOrder.requiredSkillLoaded && result?.evidence?.skill_read !== "externally-verified") {
     errors.push(`required skill ${workOrder.requiredSkill} is not externally verified`);
   }
   if (!Array.isArray(result?.evidence?.files_changed)) {
