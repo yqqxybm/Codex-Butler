@@ -5,16 +5,22 @@
   "type": "module",
   "description": "Deterministic control plane for orchestrating Codex worker sessions.",
   "bin": {
-    "codex-butler": "./src/cli.js"
+    "codex-butler": "./src/cli.js",
+    "codex-butler-mcp": "./src/mcpServer.js"
   },
   "scripts": {
     "check": "node --check src/*.js && node --check tests/*.js",
     "test": "node --test tests/*.test.js",
+    "butler": "node src/cli.js",
+    "mcp": "node src/mcpServer.js",
     "probe": "node src/cli.js probe",
     "probe:turn": "node src/cli.js probe --with-turn",
     "smoke": "npm run check && npm test && npm run probe"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

@@ -41,6 +41,8 @@ npm test
 npm run probe
 npm run probe:turn
 npm run smoke
+npm run butler -- status
+npm run mcp
 ```
 
 `npm run probe` starts a local `codex app-server --listen stdio://` subprocess,
@@ -58,13 +60,42 @@ Implemented:
 - M0 transport and permission spike.
 - Explicit worker-turn probe through `turn/start + outputSchema`.
 - M1 deterministic contracts for ledger, state, and role handoffs.
+- M2 persistent `codex-butlerd` service core through CLI/service APIs.
+- M3 MCP stdio server with Butler tools.
+- M4 worker dispatch over app-server `turn/start`.
+- M5 isolated git worktree allocation.
+- M6 verifier/rework state transitions.
+- M7 deterministic promotion gate for verified worktree diffs.
+- M8 status surface through CLI and MCP.
 
 Not implemented yet:
 
-- Persistent `codex-butlerd` daemon.
-- MCP tool server exposed to a Butler session.
-- Full worker lifecycle with rework/review/promotion routing.
-- Worktree allocation and deterministic promotion.
+- Long-running daemon process management.
+- Automatic multi-task planning from a natural language goal.
+- Full review-worker transcript evidence extraction for skill-read verification.
+- UI dashboard beyond JSON status.
 
 Those are intentionally separate phases so the control surface is testable
 before worker automation starts modifying repositories.
+
+## Butler Control Plane
+
+```sh
+npm run butler -- submit-goal "ship a feature"
+npm run butler -- create-task <goal-id> verifier "run smoke checks"
+npm run butler -- dispatch-task <task-id>
+npm run butler -- verify-task <task-id> -- npm test
+npm run butler -- promote-task <task-id>
+npm run butler -- status
+```
+
+The MCP server exposes the same control-plane operations as tools:
+
+- `butler_submit_goal`
+- `butler_create_task`
+- `butler_dispatch_task`
+- `butler_allocate_worktree`
+- `butler_run_verifier`
+- `butler_promote_task`
+- `butler_status`
+- `butler_read_ledger`

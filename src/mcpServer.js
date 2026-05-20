@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import * as z from "zod/v4";
+import { createDefaultService } from "./butlerService.js";
+
+export function createMcpServer(service = createDefaultService()) {
+  const server = new McpServer({ name: "codex-butler", version: "0.1.0" });
+
+  registerJsonTool(server, "butler_submit_goal", {
+    description: "Create a Butler goal in the persistent control-plane state.",
+    inputSchema: { objective: z.string().min(1) }
+  }, ({ objective }) => service.submitGoal({ objective }));
+
+  registerJsonTool(server, "butler_create_task", {
+    description: "Create a task owned by a specific worker role.",
+    inputSchema: {
+      goalId: z.string().min(1),
+      role: z.enum(["iteration-worker", "review-worker", "analysis-worker", "refine-worker", "verifier", "promoter"]),
+      objective: z.string().min(1),
+      ownedScope: z.string().optional()
+    }
+  }, ({ goalId, role, objective, ownedScope }) => service.createTask({ goalId, role, objective, ownedScope }));
+
+  registerJsonTool(server, "butler_dispatch_task", {
+    description: "Dispatch a task to a real app-server worker turn and validate its structured handoff.",
+    inputSchema: { taskId: z.string().min(1) }
+  }, ({ taskId }) => service.dispatchTask({ taskId }));
+
+  registerJsonTool(server, "butler_allocate_worktree", {
+    description: "Allocate an isolated git worktree for a task.",
+    inputSchema: { taskId: z.string().min(1) }
+  }, ({ taskId }) => service.allocateTaskWorktree({ taskId }));
+
+  registerJsonTool(server, "butler_run_verifier", {
+    description: "Run a deterministic verification command for a task.",
+    inputSchema: {
+      taskId: z.string().min(1),
+      command: z.array(z.string()).min(1)
+    }
+  }, ({ taskId, command }) => service.runVerifier({ taskId, command }));
+
+  registerJsonTool(server, "butler_promote_task", {
+    description: "Promote a verified task through the deterministic promotion gate.",
+    inputSchema: { taskId: z.string().min(1) }
+  }, ({ taskId }) => service.promoteTask({ taskId }));
+
+  registerJsonTool(server, "butler_status", {
+    description: "Read Butler goals, tasks, states, and data location.",
+    inputSchema: {}
+  }, () => service.status());
+
+  registerJsonTool(server, "butler_read_ledger", {
+    description: "Read append-only Butler event ledger entries.",
+    inputSchema: {}
+  }, () => service.readLedger());
+
+  return server;
+}
+
+function registerJsonTool(server, name, config, handler) {
+  server.registerTool(name, config, async (args) => {
+    const structuredContent = await handler(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent
+    };
+  });
+}
+
+async function main() {
+  const server = createMcpServer();
+  await server.connect(new StdioServerTransport());
+  console.error("codex-butler MCP server running on stdio");
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

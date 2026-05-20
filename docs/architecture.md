@@ -42,6 +42,19 @@ Current implementation validates:
 Checks the local Codex CLI, app-server daemon metadata, generated schema bundle,
 global config risks, and runtime sandbox behavior.
 
+### Butler Service
+
+`ButlerService` is the deterministic control-plane core. It owns goal/task
+state, append-only ledger writes, worker dispatch, worktree allocation,
+verification, promotion, and status. The model-facing Butler session should call
+this service through MCP tools instead of writing project files directly.
+
+### MCP Server
+
+`src/mcpServer.js` uses the official Model Context Protocol SDK and exposes
+Butler tools over stdio. This is the integration surface for a Butler Codex
+session.
+
 ### Ledger
 
 Append-only JSONL events. Each event has a stable event id, timestamp, type, and
@@ -67,6 +80,14 @@ queued -> leased -> dispatched -> awaiting_result -> validating
 
 Rework loops return from `review` or `validating` to `queued`.
 
+### Worktrees And Promotion
+
+Implementation tasks can receive isolated git worktrees under
+`.codex-butler/worktrees/`. Promotion requires a verified task and a clean main
+workspace. The gate applies the task worktree diff deterministically with
+`git apply`, including staged and untracked files; it does not let the model
+write the main workspace directly.
+
 ### Role Contracts
 
 Every worker receives a role contract:
@@ -83,8 +104,7 @@ or claim unverified success.
 
 ## Next Phases
 
-1. Implement `codex-butlerd` as a persistent service.
-2. Expose MCP tools for Butler sessions.
-3. Add app-server worker lifecycle routing across multiple tasks.
-4. Add worktree allocator.
-5. Add review/rework/promotion gates.
+1. Add long-running daemon process management around `ButlerService`.
+2. Add automatic plan compilation from a natural language goal.
+3. Add transcript-based skill-read evidence extraction.
+4. Add richer dashboard output beyond JSON status.

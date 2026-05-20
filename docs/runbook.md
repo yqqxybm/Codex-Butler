@@ -32,6 +32,27 @@ This performs the normal capability probe and additionally starts a real
 `turn/start` with an `outputSchema`. It uses the model, so keep it out of cheap
 local smoke unless the worker-session path changed.
 
+## Butler CLI
+
+```sh
+npm run butler -- submit-goal "ship a feature"
+npm run butler -- create-task <goal-id> verifier "run smoke checks"
+npm run butler -- status
+```
+
+State and ledger files are stored under `.codex-butler/`, which is intentionally
+ignored by git.
+
+## MCP Server
+
+```sh
+npm run mcp
+```
+
+Use this command as the stdio MCP server entrypoint for Butler sessions. The
+server exposes goal, task, dispatch, worktree, verifier, promotion, status, and
+ledger tools.
+
 ## Common Failures
 
 ### `codex` Not Found
@@ -58,6 +79,12 @@ being enforceable before worker sessions can be trusted with task execution.
 
 Treat this as a transport blocker. The product requires true app-server turns,
 not only thread creation or standalone command execution.
+
+### Promotion Is Blocked By Dirty Main Workspace
+
+Commit, stash, or intentionally clear unrelated main-workspace changes before
+promotion. The promotion gate refuses to apply worker diffs into a dirty main
+workspace.
 
 ## Evidence Rules
 

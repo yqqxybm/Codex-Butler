@@ -15,6 +15,9 @@ main workspace, ask the user directly, or claim unverified completion.
   protocol or CI harness.
 - Any claim about app-server capability must be backed by `npm run probe` or a
   more specific command.
+- Any claim about worker-turn capability must be backed by `npm run probe:turn`.
+- Any claim about MCP tool loading must be backed by the MCP protocol test or a
+  real Codex MCP load.
 - Worker prompts must include role, required skill, owned scope, forbidden
   actions, and output schema.
 - Do not add dependencies unless they remove real implementation risk.
@@ -24,4 +27,5 @@ main workspace, ask the user directly, or claim unverified completion.
 - Syntax: `npm run check`
 - Unit tests: `npm test`
 - Local Codex capability probe: `npm run probe`
+- Worker-turn probe: `npm run probe:turn`
 - Full smoke: `npm run smoke`
