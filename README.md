@@ -48,6 +48,8 @@ npm run probe
 npm run probe:turn
 npm run smoke
 npm run daemon -- status
+npm run launchd -- install
+npm run launchd -- status
 npm run butler -- plan-goal "ship a feature"
 npm run butler -- status
 npm run butler -- dashboard
@@ -101,6 +103,7 @@ npm run daemon -- start
 npm run daemon -- status
 npm run daemon -- stop
 npm run web -- --port 4177
+npm run launchd -- install
 ```
 
 The MCP server exposes the same control-plane operations as tools:
@@ -129,3 +132,30 @@ Open `http://127.0.0.1:4177` to use the local web console. The console is bound
 to localhost by default and exposes the same local control-plane actions as the
 CLI: plan goals, inspect tasks and events, manage the daemon, allocate
 worktrees, dispatch tasks, run verification, and promote verified work.
+
+## Persistent Local Service
+
+Use the macOS `launchd` service when the Butler should stay available after the
+current terminal or Codex turn ends:
+
+```sh
+npm run launchd -- install
+npm run launchd -- status
+```
+
+This installs and starts two user LaunchAgents:
+
+- `com.codex-butler.daemon`: foreground Butler daemon supervised by `launchd`.
+- `com.codex-butler.web`: local web console at `http://127.0.0.1:4177`.
+
+Operational commands:
+
+```sh
+npm run launchd -- restart
+npm run launchd -- logs
+npm run launchd -- uninstall
+npm run launchd -- install --target web --host 127.0.0.1 --port 4178
+```
+
+The plist files live in `~/Library/LaunchAgents/`. Logs are written under
+`.codex-butler/logs/`.

@@ -78,6 +78,51 @@ Open `http://127.0.0.1:4177`. The web console is a local operator UI for goal
 planning, daemon control, task action buttons, status metrics, and recent ledger
 events. It binds to localhost by default.
 
+## Persistent macOS Service
+
+Use `launchd` for long-lived local operation. This is the preferred way to keep
+the Butler daemon and web console alive outside the current shell or Codex turn.
+
+Install and start both services:
+
+```sh
+npm run launchd -- install
+```
+
+Default services:
+
+- `com.codex-butler.daemon` runs `node src/cli.js daemon run`.
+- `com.codex-butler.web` runs `node src/cli.js web --host 127.0.0.1 --port 4177`.
+
+Status and health checks:
+
+```sh
+npm run launchd -- status
+npm run daemon -- status
+curl -fsS http://127.0.0.1:4177/api/dashboard
+```
+
+Logs:
+
+```sh
+npm run launchd -- logs
+tail -f .codex-butler/logs/codex-butler-web.out.log
+tail -f .codex-butler/logs/codex-butler-web.err.log
+tail -f .codex-butler/logs/codex-butler-daemon.out.log
+tail -f .codex-butler/logs/codex-butler-daemon.err.log
+```
+
+Restart, change port, or remove the services:
+
+```sh
+npm run launchd -- restart
+npm run launchd -- install --target web --host 127.0.0.1 --port 4178
+npm run launchd -- uninstall
+```
+
+The LaunchAgent plist files are stored in `~/Library/LaunchAgents/`. Removing
+the services does not delete `.codex-butler/` state, ledger, worktrees, or logs.
+
 ## Planning And Dashboard
 
 ```sh
@@ -138,6 +183,12 @@ The recorded PID no longer exists. Run:
 ```sh
 npm run daemon -- stop
 npm run daemon -- start
+```
+
+If the daemon is managed by `launchd`, restart the managed service instead:
+
+```sh
+npm run launchd -- restart --target daemon
 ```
 
 ## Evidence Rules

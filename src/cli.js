@@ -4,6 +4,12 @@ import { runCapabilityProbe } from "./capabilityProbe.js";
 import { buildWorkOrder } from "./roleContracts.js";
 import { createDefaultService } from "./butlerService.js";
 import { runDaemon } from "./daemon.js";
+import {
+  installLaunchdServices,
+  launchdLogPaths,
+  statusLaunchdServices,
+  uninstallLaunchdServices
+} from "./launchd.js";
 import { startWebServer } from "./webServer.js";
 
 async function main(argv) {
@@ -153,6 +159,43 @@ async function main(argv) {
     await new Promise(() => {});
   }
 
+  if (command === "launchd") {
+    const [subcommand, ...subcommandArgs] = args;
+    const parsed = parseLaunchdArgs(subcommandArgs);
+    if (subcommand === "install" || subcommand === "restart") {
+      console.log(JSON.stringify(await installLaunchdServices({
+        projectRoot: process.cwd(),
+        target: parsed.target,
+        host: parsed.host,
+        port: parsed.port,
+        nodePath: parsed.nodePath
+      }), null, 2));
+      return 0;
+    }
+    if (subcommand === "status") {
+      console.log(JSON.stringify(await statusLaunchdServices({
+        projectRoot: process.cwd(),
+        target: parsed.target
+      }), null, 2));
+      return 0;
+    }
+    if (subcommand === "logs") {
+      console.log(JSON.stringify(launchdLogPaths({
+        projectRoot: process.cwd(),
+        target: parsed.target
+      }), null, 2));
+      return 0;
+    }
+    if (subcommand === "uninstall") {
+      console.log(JSON.stringify(await uninstallLaunchdServices({
+        projectRoot: process.cwd(),
+        target: parsed.target
+      }), null, 2));
+      return 0;
+    }
+    throw new Error("usage: codex-butler launchd <install|status|restart|logs|uninstall>");
+  }
+
   throw new Error(`unknown command: ${command}`);
 }
 
@@ -204,6 +247,9 @@ Commands:
 
   web [--host 127.0.0.1] [--port 4177]
     Serve the local web console.
+
+  launchd <install|status|restart|logs|uninstall> [--target all|daemon|web] [--host 127.0.0.1] [--port 4177]
+    Manage persistent macOS launchd services for the daemon and web console.
 `);
 }
 
@@ -213,6 +259,18 @@ function parseWebArgs(argv) {
     const item = argv[index];
     if (item === "--host") parsed.host = argv[++index];
     else if (item === "--port") parsed.port = argv[++index];
+  }
+  return parsed;
+}
+
+function parseLaunchdArgs(argv) {
+  const parsed = { target: "all" };
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (item === "--target") parsed.target = argv[++index];
+    else if (item === "--host") parsed.host = argv[++index];
+    else if (item === "--port") parsed.port = argv[++index];
+    else if (item === "--node-path") parsed.nodePath = argv[++index];
   }
   return parsed;
 }

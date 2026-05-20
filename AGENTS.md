@@ -35,3 +35,4 @@ main workspace, ask the user directly, or claim unverified completion.
 - Daemon status smoke: `npm run daemon -- status`
 - Dashboard smoke: `npm run butler -- dashboard`
 - Web console smoke: `npm run web -- --port 4177`
+- Persistent service smoke: `npm run launchd -- status`
