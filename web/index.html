@@ -38,66 +38,76 @@
           <div class="topbar-actions">
             <button class="button secondary" id="refreshButton" type="button">刷新</button>
             <button class="button secondary" id="startDaemonButton" type="button">启动后台</button>
-            <button class="button danger" id="stopDaemonButton" type="button">停止</button>
+            <button class="button danger" id="stopDaemonButton" type="button" hidden>停止</button>
           </div>
+        </section>
+
+        <section class="panel current-goal-panel" id="goals">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">主操作区</p>
+              <h3>当前目标</h3>
+            </div>
+          </div>
+          <div class="list" id="goalsList"></div>
         </section>
 
         <section class="hero-panel" aria-label="开始使用">
           <form class="planner-form primary-flow" id="plannerForm">
             <div>
-              <p class="eyebrow">第一步</p>
+              <p class="eyebrow">新目标</p>
               <label for="objectiveInput">输入这轮要完成的目标</label>
             </div>
             <div class="planner-row">
               <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：把项目手册改成用户能直接照着操作的版本" required>
-              <button class="button primary" type="submit" data-plan-mode="run">生成并推进</button>
+              <button class="button primary" type="submit" data-plan-mode="run">生成并自动推进</button>
               <button class="button secondary on-light" type="submit" data-plan-mode="plan">只生成计划</button>
             </div>
-            <p class="helper-text" id="formHelp">日常只看“当前目标”卡片。内部步骤只在排障时展开。</p>
+            <p class="helper-text" id="formHelp">提交后会推进到完成、明确阻塞或需要你确认的边界。</p>
           </form>
           <div class="readiness-card">
             <div>
               <p class="eyebrow">运行环境</p>
               <strong id="readinessTitle">等待检查</strong>
-              <p id="readinessText">后台负责推进目标；会话复用是高级选项，不影响你直接输入新目标。</p>
+              <p id="readinessText">后台负责推进目标；高级会话状态不影响你直接开始。</p>
             </div>
             <button class="button secondary on-light" id="probeAllButton" type="button">检查会话可用性</button>
           </div>
         </section>
 
-        <section class="metric-grid" aria-label="Summary metrics">
-          <article class="metric-panel">
-            <span class="metric-label">目标</span>
-            <strong id="goalCount">0</strong>
-            <small id="activeGoalCount">0 个进行中</small>
-          </article>
-          <article class="metric-panel">
-            <span class="metric-label">待推进</span>
-            <strong id="taskCount">0</strong>
-            <small id="queuedTaskCount">0 个待执行</small>
-          </article>
-          <article class="metric-panel">
-            <span class="metric-label">需要处理</span>
-            <strong id="blockedCount">0</strong>
-            <small>需要你处理的卡点</small>
-          </article>
-          <article class="metric-panel accent-panel">
-            <span class="metric-label">会话可用性</span>
-            <strong id="sessionCount">0</strong>
-            <small id="butlerSessionCount">0 个管家</small>
-          </article>
-        </section>
+        <details class="panel disclosure-panel" id="summary">
+          <summary class="panel-header">
+            <div>
+              <p class="eyebrow">运行摘要</p>
+              <h3>状态数字</h3>
+            </div>
+            <span class="summary-hint">排障时再看</span>
+          </summary>
+          <section class="metric-grid" aria-label="Summary metrics">
+            <article class="metric-panel">
+              <span class="metric-label">目标</span>
+              <strong id="goalCount">0</strong>
+              <small id="activeGoalCount">0 个进行中</small>
+            </article>
+            <article class="metric-panel">
+              <span class="metric-label">待推进</span>
+              <strong id="taskCount">0</strong>
+              <small id="queuedTaskCount">0 个待执行</small>
+            </article>
+            <article class="metric-panel">
+              <span class="metric-label">需要处理</span>
+              <strong id="blockedCount">0</strong>
+              <small>需要你处理的卡点</small>
+            </article>
+            <article class="metric-panel accent-panel">
+              <span class="metric-label">会话可用性</span>
+              <strong id="sessionCount">0</strong>
+              <small id="butlerSessionCount">0 个管家</small>
+            </article>
+          </section>
+        </details>
 
         <div class="content-grid">
-          <section class="panel" id="goals">
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">主操作区</p>
-                <h3>当前目标</h3>
-              </div>
-            </div>
-            <div class="list" id="goalsList"></div>
-          </section>
 
           <details class="panel disclosure-panel" id="sessions">
             <summary class="panel-header">

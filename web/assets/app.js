@@ -38,12 +38,14 @@ elements.plannerForm.addEventListener("submit", async (event) => {
   if (!objective) return;
   const mode = event.submitter?.dataset?.planMode ?? "run";
   const path = mode === "plan" ? "/api/goals/plan" : "/api/goals/plan-and-run";
-  await runAction(mode === "plan" ? "计划已生成" : "计划已生成，并已推进第一步", () => api(path, {
+  await runAction(mode === "plan" ? "计划已生成" : "计划已生成，并已推进到当前边界", () => api(path, {
     method: "POST",
-    body: JSON.stringify({ objective, maxSteps: 1 })
+    body: JSON.stringify({ objective, maxSteps: mode === "plan" ? 1 : 20 })
   }), {
     button: event.submitter,
-    pendingMessage: mode === "plan" ? "正在生成计划..." : "正在生成计划并推进第一步，可能需要几十秒..."
+    pendingMessage: mode === "plan"
+      ? "正在生成计划..."
+      : "正在生成计划并自动推进；会运行到完成、明确阻塞或需要确认的边界。"
   });
   elements.objectiveInput.value = "";
   await refresh();
@@ -195,7 +197,7 @@ function render(data) {
   elements.butlerSessionCount.textContent = `${usableSessions.length} 个可复用，${unreachableSessions.length} 个不可达`;
   renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
-  renderGoals(goals, data.goalProgress ?? {});
+  renderGoals(goals, data.goalProgress ?? {}, tasks);
   renderSessions(sessions);
   renderTasks(tasks);
   renderEvents(events);
@@ -203,6 +205,8 @@ function render(data) {
 
 function renderDaemon(daemon) {
   const status = daemon?.status ?? "unknown";
+  elements.startDaemonButton.hidden = status === "running";
+  elements.stopDaemonButton.hidden = true;
   elements.daemonTile.innerHTML = `
     <span class="status-dot ${classForState(status)}" aria-hidden="true"></span>
     <span>${escapeHtml(daemonStatusLabel(status))}</span>
@@ -211,12 +215,8 @@ function renderDaemon(daemon) {
 
 function renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, daemon) {
   if (daemon?.status === "running") {
-    elements.readinessTitle.textContent = "后台运行中";
-    if (sessions.length === 0) {
-      elements.readinessText.textContent = "可以直接输入目标开始推进；已有会话复用只是高级能力。";
-    } else {
-      elements.readinessText.textContent = `${usableSessions.length} 个已有会话当前可复用；不可达会话不会阻止新目标推进。`;
-    }
+    elements.readinessTitle.textContent = "可以推进";
+    elements.readinessText.textContent = "后台已就绪。旧会话可用性只影响复用，不影响创建和推进新目标。";
     return;
   }
   if (sessions.length === 0) {
@@ -225,13 +225,13 @@ function renderReadiness(sessions, usableSessions, attachedSessions, unreachable
     return;
   }
   if (usableSessions.length > 0) {
-    elements.readinessTitle.textContent = `${usableSessions.length} 个已有会话可复用`;
+    elements.readinessTitle.textContent = "后台未运行";
     if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
-      elements.readinessText.textContent = `${attachedSessions.length} 个当前会话已附着；${unreachableSessions.length} 个旧会话不可达。`;
+      elements.readinessText.textContent = "先启动后台。已有会话状态可在高级选项里查看。";
     } else if (attachedSessions.length > 0) {
-      elements.readinessText.textContent = "当前 Codex 会话已作为管家附着，可以在这里操作 Butler。";
+      elements.readinessText.textContent = "当前 Codex 会话已附着，但后台仍需启动。";
     } else {
-      elements.readinessText.textContent = "已有会话检查正常，可以参与后续调度。";
+      elements.readinessText.textContent = "已有会话可复用，但后台仍需启动。";
     }
     return;
   }
@@ -241,18 +241,21 @@ function renderReadiness(sessions, usableSessions, attachedSessions, unreachable
     : "先启动后台；已有会话可稍后再检查。";
 }
 
-function renderGoals(goals, goalProgress) {
+function renderGoals(goals, goalProgress, tasks) {
   if (goals.length === 0) {
-    elements.goalsList.innerHTML = `<div class="empty-state">还没有目标。输入一句你要完成的事，Butler 会拆任务并推进。</div>`;
+    elements.goalsList.innerHTML = `<div class="empty-state">当前没有正在推进的目标。下面输入一句你要完成的事，Butler 会拆分并推进到边界。</div>`;
     return;
   }
   elements.goalsList.innerHTML = goals.map((goal) => {
     const progress = goalProgress[goal.id] ?? null;
+    const goalTasks = tasks.filter((task) => task.goalId === goal.id);
     return `
     <article class="goal-item ${goalTone(progress)}">
-      <p class="eyebrow">当前目标</p>
+      <p class="eyebrow">${goal.state === "done" ? "已完成目标" : "当前工作"}</p>
       <p class="item-title">${escapeHtml(goal.objective)}</p>
       ${renderGoalDiagnosis(progress)}
+      ${renderNextAction(progress)}
+      ${renderGoalPipeline(goalTasks)}
       <div class="row-actions">
         <button class="mini-button primary-mini" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="20">${escapeHtml(primaryGoalAction(progress))}</button>
         <button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">只推进一步</button>
@@ -268,6 +271,24 @@ function renderGoals(goals, goalProgress) {
     </article>
   `;
   }).join("");
+}
+
+function renderNextAction(progress) {
+  return `<p class="next-action">${escapeHtml(nextActionText(progress))}</p>`;
+}
+
+function renderGoalPipeline(tasks) {
+  if (tasks.length === 0) return "";
+  return `
+    <div class="goal-pipeline" aria-label="处理链路">
+      ${tasks.map((task) => `
+        <span class="pipeline-step ${classForState(task.state)}">
+          <strong>${escapeHtml(taskRoleLabel(task.ownerRole))}</strong>
+          <small>${escapeHtml(taskStateLabel(task.state))}</small>
+        </span>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderSessions(sessions) {
@@ -417,6 +438,18 @@ function goalStatusText(progress) {
     return "Butler 已处理到当前边界，但这一步仍没有给出合格交付。先展开错误原文确认原因，再决定重新规划或人工处理。";
   }
   return progress.message;
+}
+
+function nextActionText(progress) {
+  if (!progress) return "下一步：输入目标后自动建立处理链路。";
+  if (progress.status === "complete") return "下一步：查看结果或开始一个新目标。";
+  if (progress.status === "stalled" && canAutoRecover(progress)) {
+    return "下一步：让 Butler 自动修复这次交付格式问题，并继续跑后续步骤。";
+  }
+  if (progress.status === "stalled") return "下一步：展开错误原文，确认是否需要调整目标或人工处理。";
+  if (progress.status === "waiting") return "下一步：等待前置结果完成后继续。";
+  if (progress.status === "active") return "下一步：等待当前步骤返回，页面会自动刷新。";
+  return "下一步：继续自动推进到完成或明确边界。";
 }
 
 function primaryGoalAction(progress) {
