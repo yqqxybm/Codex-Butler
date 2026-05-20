@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeConfigRisk, analyzeSchemaBundle } from "../src/capabilityProbe.js";
+import { analyzeConfigRisk, analyzeDaemonVersion, analyzeSchemaBundle } from "../src/capabilityProbe.js";
 
 test("config risk flags broad global execution settings", () => {
   const risk = analyzeConfigRisk({
@@ -43,4 +43,16 @@ test("schema bundle analysis requires transport and permission fields", async ()
   }));
   const result = await analyzeSchemaBundle(dir);
   assert.equal(result.ok, true);
+});
+
+test("daemon version parser requires running status", () => {
+  const running = analyzeDaemonVersion(JSON.stringify({
+    status: "running",
+    cliVersion: "0.131.0-alpha.9",
+    appServerVersion: "0.131.0-alpha.9"
+  }));
+  assert.equal(running.ok, true);
+
+  const stopped = analyzeDaemonVersion(JSON.stringify({ status: "stopped" }));
+  assert.equal(stopped.ok, false);
 });

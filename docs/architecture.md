@@ -33,6 +33,7 @@ Current implementation validates:
 
 - initialize / initialized handshake,
 - ephemeral thread creation,
+- real `turn/start` with `outputSchema` when `probe:turn` is requested,
 - standalone command execution,
 - read-only sandbox denial.
 
@@ -84,6 +85,6 @@ or claim unverified success.
 
 1. Implement `codex-butlerd` as a persistent service.
 2. Expose MCP tools for Butler sessions.
-3. Add app-server worker turn lifecycle and structured model output.
+3. Add app-server worker lifecycle routing across multiple tasks.
 4. Add worktree allocator.
 5. Add review/rework/promotion gates.

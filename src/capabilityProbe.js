@@ -8,13 +8,14 @@ import { CodexAppServerClient } from "./codexAppServerClient.js";
 
 export async function runCapabilityProbe(options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const withTurn = options.withTurn === true;
   const checks = [];
 
   const codexVersion = await runCommand("codex", ["--version"], { cwd });
   checks.push(commandCheck("codex_version", codexVersion));
 
   const daemonVersion = await runCommand("codex", ["app-server", "daemon", "version"], { cwd });
-  checks.push(commandCheck("app_server_daemon_version", daemonVersion));
+  checks.push(daemonVersionCheck(daemonVersion));
 
   const schema = await generateAndAnalyzeSchema(cwd);
   checks.push({
@@ -36,6 +37,15 @@ export async function runCapabilityProbe(options = {}) {
     ok: transport.ok,
     detail: transport
   });
+
+  if (withTurn) {
+    const workerTurn = await runWorkerTurnProbe(cwd);
+    checks.push({
+      name: "app_server_worker_turn",
+      ok: workerTurn.ok,
+      detail: workerTurn
+    });
+  }
 
   const ok = checks.every((check) => check.ok);
   return { ok, checks };
@@ -124,6 +134,25 @@ export function analyzeConfigRisk(config) {
   };
 }
 
+export function analyzeDaemonVersion(stdout) {
+  try {
+    const parsed = JSON.parse(stdout);
+    return {
+      ok: parsed.status === "running",
+      status: parsed.status ?? null,
+      cliVersion: parsed.cliVersion ?? null,
+      appServerVersion: parsed.appServerVersion ?? null,
+      socketPath: parsed.socketPath ?? null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error.message,
+      raw: stdout.trim()
+    };
+  }
+}
+
 async function runTransportProbe(cwd) {
   const client = new CodexAppServerClient({ cwd });
   try {
@@ -159,6 +188,18 @@ async function runTransportProbe(cwd) {
   }
 }
 
+async function runWorkerTurnProbe(cwd) {
+  const client = new CodexAppServerClient({ cwd });
+  try {
+    await client.initialize();
+    return await client.runStructuredTurnProbe(cwd);
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    client.close();
+  }
+}
+
 function commandCheck(name, result) {
   return {
     name,
@@ -168,6 +209,20 @@ function commandCheck(name, result) {
       stdout: result.stdout.trim(),
       stderr: result.stderr.trim()
     }
+  };
+}
+
+function daemonVersionCheck(result) {
+  const detail = {
+    exitCode: result.exitCode,
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim(),
+    parsed: analyzeDaemonVersion(result.stdout)
+  };
+  return {
+    name: "app_server_daemon_version",
+    ok: result.exitCode === 0 && detail.parsed.ok,
+    detail
   };
 }
 

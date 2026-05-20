@@ -39,6 +39,7 @@ side effects, state, evidence, and promotion.
 npm run check
 npm test
 npm run probe
+npm run probe:turn
 npm run smoke
 ```
 
@@ -46,18 +47,23 @@ npm run smoke
 initializes JSON-RPC, starts an ephemeral read-only thread, runs a safe command,
 and verifies that a read-only sandbox blocks file creation.
 
+`npm run probe:turn` additionally starts a real app-server `turn/start` with an
+`outputSchema` and verifies the final model response. It is intentionally not
+part of `npm run smoke` because it uses the model.
+
 ## Current Scope
 
 Implemented:
 
 - M0 transport and permission spike.
+- Explicit worker-turn probe through `turn/start + outputSchema`.
 - M1 deterministic contracts for ledger, state, and role handoffs.
 
 Not implemented yet:
 
 - Persistent `codex-butlerd` daemon.
 - MCP tool server exposed to a Butler session.
-- Full app-server worker turn lifecycle with model output.
+- Full worker lifecycle with rework/review/promotion routing.
 - Worktree allocation and deterministic promotion.
 
 Those are intentionally separate phases so the control surface is testable

@@ -7,6 +7,7 @@ export class JsonlRpcClient {
     this.options = options;
     this.nextId = 1;
     this.pending = new Map();
+    this.notificationWaiters = new Set();
     this.notifications = [];
     this.buffer = "";
     this.closed = false;
@@ -32,6 +33,11 @@ export class JsonlRpcClient {
         entry.reject(new Error(`JSONL RPC process exited: code=${code} signal=${signal}`));
       }
       this.pending.clear();
+      for (const waiter of this.notificationWaiters.values()) {
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error(`JSONL RPC process exited: code=${code} signal=${signal}`));
+      }
+      this.notificationWaiters.clear();
     });
   }
 
@@ -62,10 +68,34 @@ export class JsonlRpcClient {
     this.#write({ method, params });
   }
 
+  waitForNotification(predicate, timeoutMs = 15000) {
+    for (const notification of this.notifications) {
+      if (predicate(notification)) return Promise.resolve(notification);
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        predicate,
+        resolve,
+        reject,
+        timer: null
+      };
+      waiter.timer = setTimeout(() => {
+        this.notificationWaiters.delete(waiter);
+        reject(new Error("Timed out waiting for notification"));
+      }, timeoutMs);
+      this.notificationWaiters.add(waiter);
+    });
+  }
+
   close() {
     if (!this.child || this.closed) return;
     this.child.kill();
     this.closed = true;
+    for (const waiter of this.notificationWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("JSONL RPC process closed"));
+    }
+    this.notificationWaiters.clear();
   }
 
   #write(message) {
@@ -102,6 +132,13 @@ export class JsonlRpcClient {
 
     if (message.method) {
       this.notifications.push(message);
+      for (const waiter of [...this.notificationWaiters]) {
+        if (waiter.predicate(message)) {
+          clearTimeout(waiter.timer);
+          this.notificationWaiters.delete(waiter);
+          waiter.resolve(message);
+        }
+      }
       if (this.options.onNotification) this.options.onNotification(message);
     }
   }

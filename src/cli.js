@@ -11,7 +11,10 @@ async function main(argv) {
   }
 
   if (command === "probe") {
-    const result = await runCapabilityProbe({ cwd: process.cwd() });
+    const result = await runCapabilityProbe({
+      cwd: process.cwd(),
+      withTurn: args.includes("--with-turn")
+    });
     console.log(JSON.stringify(result, null, 2));
     return result.ok ? 0 : 1;
   }
@@ -52,6 +55,9 @@ function printHelp() {
 Commands:
   probe
     Run Codex CLI, app-server schema, JSONL transport, and read-only sandbox checks.
+
+  probe --with-turn
+    Also run a real app-server turn/start with outputSchema. This uses the model.
 
   work-order <role> <task-id> <objective>
     Print a role-constrained worker work order.

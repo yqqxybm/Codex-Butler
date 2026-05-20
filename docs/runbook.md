@@ -22,6 +22,16 @@ The probe is safe. It creates only ephemeral app-server state and attempts a
 read-only sandbox write to a temporary path. The expected result is that the
 write is denied.
 
+## Worker Turn Probe
+
+```sh
+npm run probe:turn
+```
+
+This performs the normal capability probe and additionally starts a real
+`turn/start` with an `outputSchema`. It uses the model, so keep it out of cheap
+local smoke unless the worker-session path changed.
+
 ## Common Failures
 
 ### `codex` Not Found
@@ -43,6 +53,11 @@ path used by this project.
 
 Treat this as a release blocker. The Butler design depends on sandbox policy
 being enforceable before worker sessions can be trusted with task execution.
+
+### Worker Turn Probe Fails
+
+Treat this as a transport blocker. The product requires true app-server turns,
+not only thread creation or standalone command execution.
 
 ## Evidence Rules
 
