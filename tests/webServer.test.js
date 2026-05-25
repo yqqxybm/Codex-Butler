@@ -11,7 +11,7 @@ test("web server serves the app shell and status API", async () => {
   try {
     const page = await fetchText(`${baseUrl}/`);
     assert.match(page, /Codex Butler/);
-    assert.match(page, /告诉 Butler/);
+    assert.match(page, /管家会话/);
     assert.match(page, /app\.js/);
 
     const status = await fetchJson(`${baseUrl}/api/status`);

@@ -18,9 +18,9 @@
         </div>
         <nav class="rail-nav" aria-label="页面区域">
           <a href="#overview" class="active">开始</a>
-          <a href="#goals">目标</a>
-          <a href="#sessions">高级</a>
-          <a href="#tasks">排障</a>
+          <a href="#goals">管家</a>
+          <a href="#sessions">会话</a>
+          <a href="#tasks">底层记录</a>
           <a href="#events">日志</a>
         </nav>
         <div class="daemon-tile" id="daemonTile">
@@ -32,8 +32,8 @@
       <main class="workspace">
         <section class="topbar" id="overview">
           <div>
-            <p class="eyebrow">产品工作台</p>
-            <h2>告诉 Butler 你要完成什么，它会安排执行、审查，并在卡住时给出下一步。</h2>
+            <p class="eyebrow">管家会话</p>
+            <h2>把目标交给 Butler，由一个管家会话调度执行会话、审查结果，并只在需要你判断时停下。</h2>
           </div>
           <div class="topbar-actions">
             <button class="button secondary" id="refreshButton" type="button">刷新</button>
@@ -45,8 +45,8 @@
         <section class="panel current-goal-panel" id="goals">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">主操作区</p>
-              <h3>当前目标</h3>
+              <p class="eyebrow">主控台</p>
+              <h3>管家接管状态</h3>
             </div>
           </div>
           <div class="list" id="goalsList"></div>
@@ -56,20 +56,20 @@
           <form class="planner-form primary-flow" id="plannerForm">
             <div>
               <p class="eyebrow">新目标</p>
-              <label for="objectiveInput">输入这轮要完成的目标</label>
+              <label for="objectiveInput">交给管家的新目标</label>
             </div>
             <div class="planner-row">
               <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：把项目手册改成用户能直接照着操作的版本" required>
-              <button class="button primary" type="submit" data-plan-mode="run">生成并自动推进</button>
+              <button class="button primary" type="submit" data-plan-mode="run">交给管家推进</button>
               <button class="button secondary on-light" type="submit" data-plan-mode="plan">只生成计划</button>
             </div>
-            <p class="helper-text" id="formHelp">提交后会推进到完成、明确阻塞或需要你确认的边界。</p>
+            <p class="helper-text" id="formHelp">管家会建立执行链，并推进到完成、明确阻塞或需要你确认的边界。</p>
           </form>
           <div class="readiness-card">
             <div>
               <p class="eyebrow">运行环境</p>
               <strong id="readinessTitle">等待检查</strong>
-              <p id="readinessText">后台负责推进目标；高级会话状态不影响你直接开始。</p>
+              <p id="readinessText">后台负责让管家会话持续推进；已有会话复用是高级选项。</p>
             </div>
             <button class="button secondary on-light" id="probeAllButton" type="button">检查会话可用性</button>
           </div>
@@ -92,7 +92,7 @@
             <article class="metric-panel">
               <span class="metric-label">待推进</span>
               <strong id="taskCount">0</strong>
-              <small id="queuedTaskCount">0 个待执行</small>
+              <small id="queuedTaskCount">0 个等待推进</small>
             </article>
             <article class="metric-panel">
               <span class="metric-label">需要处理</span>
@@ -113,7 +113,7 @@
             <summary class="panel-header">
               <div>
                 <p class="eyebrow">高级选项</p>
-                <h3>已有会话复用</h3>
+                <h3>会话复用</h3>
               </div>
               <span class="summary-hint">默认不用管</span>
             </summary>
@@ -122,7 +122,7 @@
               <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
               <button class="button secondary on-light" type="submit">添加管家会话</button>
             </form>
-            <p class="helper-text" id="sessionHelp">这里只用于复用已有 Codex 会话。检查失败不影响你在网页里推进新目标。</p>
+            <p class="helper-text" id="sessionHelp">这里管理可被管家复用的现有 Codex 会话。检查失败不影响管家创建新执行会话。</p>
             <div class="list" id="sessionsList"></div>
           </details>
 
@@ -130,7 +130,7 @@
             <summary class="panel-header">
               <div>
                 <p class="eyebrow">排障用</p>
-                <h3>内部步骤</h3>
+                <h3>底层执行记录</h3>
               </div>
               <span class="summary-hint">卡住时再看</span>
             </summary>

@@ -38,14 +38,14 @@ elements.plannerForm.addEventListener("submit", async (event) => {
   if (!objective) return;
   const mode = event.submitter?.dataset?.planMode ?? "run";
   const path = mode === "plan" ? "/api/goals/plan" : "/api/goals/plan-and-run";
-  await runAction(mode === "plan" ? "计划已生成" : "计划已生成，并已推进到当前边界", () => api(path, {
+  await runAction(mode === "plan" ? "计划已生成" : "管家已接管目标，并推进到当前边界", () => api(path, {
     method: "POST",
     body: JSON.stringify({ objective, maxSteps: mode === "plan" ? 1 : 20 })
   }), {
     button: event.submitter,
     pendingMessage: mode === "plan"
       ? "正在生成计划..."
-      : "正在生成计划并自动推进；会运行到完成、明确阻塞或需要确认的边界。"
+      : "管家正在建立执行链并推进；会运行到完成、明确阻塞或需要确认的边界。"
   });
   elements.objectiveInput.value = "";
   await refresh();
@@ -75,13 +75,13 @@ elements.goalsList.addEventListener("click", async (event) => {
   if (!button) return;
   const goalId = button.dataset.goalId;
   const maxSteps = Number(button.dataset.maxSteps ?? 1);
-  await runAction(maxSteps > 1 ? "已推进到当前可处理边界" : "已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
+  await runAction(maxSteps > 1 ? "管家已推进到当前边界" : "管家已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
     body: JSON.stringify({ maxSteps })
   }), {
     button,
     pendingMessage: maxSteps > 1
-      ? "正在推进目标；可恢复的交付错误会自动重跑一次。"
-      : "正在推进下一步..."
+      ? "管家正在调度执行链；可恢复的交付错误会自动重跑一次。"
+      : "管家正在推进下一步..."
   });
   await refresh();
 });
@@ -93,12 +93,12 @@ elements.taskTable.addEventListener("click", async (event) => {
   const action = button.dataset.action;
   const labels = {
     "allocate-worktree": "工作区已准备",
-    dispatch: "任务已派发",
+    dispatch: "执行会话已接收",
     verify: "验证已完成",
     promote: "提升已完成",
     retry: "这一步已重新排队"
   };
-  await runAction(labels[action] ?? "任务已更新", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`), {
+  await runAction(labels[action] ?? "执行记录已更新", () => api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`), {
     button,
     pendingMessage: action === "retry" ? "正在重新跑这一步..." : "正在执行排障操作..."
   });
@@ -197,7 +197,7 @@ function render(data) {
   elements.butlerSessionCount.textContent = `${usableSessions.length} 个可复用，${unreachableSessions.length} 个不可达`;
   renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
-  renderGoals(goals, data.goalProgress ?? {}, tasks);
+  renderGoals(goals, data.goalProgress ?? {}, tasks, sessions);
   renderSessions(sessions);
   renderTasks(tasks);
   renderEvents(events);
@@ -216,7 +216,7 @@ function renderDaemon(daemon) {
 function renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, daemon) {
   if (daemon?.status === "running") {
     elements.readinessTitle.textContent = "可以推进";
-    elements.readinessText.textContent = "后台已就绪。旧会话可用性只影响复用，不影响创建和推进新目标。";
+    elements.readinessText.textContent = "后台已就绪。管家可以创建新的执行会话；旧会话只影响复用。";
     return;
   }
   if (sessions.length === 0) {
@@ -241,19 +241,21 @@ function renderReadiness(sessions, usableSessions, attachedSessions, unreachable
     : "先启动后台；已有会话可稍后再检查。";
 }
 
-function renderGoals(goals, goalProgress, tasks) {
+function renderGoals(goals, goalProgress, tasks, sessions) {
   if (goals.length === 0) {
-    elements.goalsList.innerHTML = `<div class="empty-state">当前没有正在推进的目标。下面输入一句你要完成的事，Butler 会拆分并推进到边界。</div>`;
+    elements.goalsList.innerHTML = `<div class="empty-state">当前没有管家接管的目标。下面输入一句你要完成的事，Butler 会创建执行链并推进到边界。</div>`;
     return;
   }
   elements.goalsList.innerHTML = goals.map((goal) => {
     const progress = goalProgress[goal.id] ?? null;
     const goalTasks = tasks.filter((task) => task.goalId === goal.id);
+    const sessionSummary = summarizeSessions(sessions);
     return `
     <article class="goal-item ${goalTone(progress)}">
-      <p class="eyebrow">${goal.state === "done" ? "已完成目标" : "当前工作"}</p>
+      <p class="eyebrow">${goal.state === "done" ? "已完成目标" : "管家正在接管"}</p>
       <p class="item-title">${escapeHtml(goal.objective)}</p>
       ${renderGoalDiagnosis(progress)}
+      ${renderButlerCommand(progress, sessionSummary)}
       ${renderNextAction(progress)}
       ${renderGoalPipeline(goalTasks)}
       <div class="row-actions">
@@ -273,6 +275,24 @@ function renderGoals(goals, goalProgress, tasks) {
   }).join("");
 }
 
+function renderButlerCommand(progress, sessions) {
+  const phase = butlerPhase(progress);
+  return `
+    <div class="butler-command">
+      <div>
+        <span class="diagnosis-label">管家判断</span>
+        <strong>${escapeHtml(phase.title)}</strong>
+        <p>${escapeHtml(phase.detail)}</p>
+      </div>
+      <div class="command-stats" aria-label="会话状态">
+        <span><strong>${sessions.controllers}</strong><small>管家会话</small></span>
+        <span><strong>${sessions.reusable}</strong><small>可复用执行会话</small></span>
+        <span><strong>${sessions.unreachable}</strong><small>不可达旧会话</small></span>
+      </div>
+    </div>
+  `;
+}
+
 function renderNextAction(progress) {
   return `<p class="next-action">${escapeHtml(nextActionText(progress))}</p>`;
 }
@@ -280,7 +300,11 @@ function renderNextAction(progress) {
 function renderGoalPipeline(tasks) {
   if (tasks.length === 0) return "";
   return `
-    <div class="goal-pipeline" aria-label="处理链路">
+    <div class="goal-pipeline" aria-label="管家执行链">
+      <span class="pipeline-step controller">
+        <strong>管家</strong>
+        <small>调度</small>
+      </span>
       ${tasks.map((task) => `
         <span class="pipeline-step ${classForState(task.state)}">
           <strong>${escapeHtml(taskRoleLabel(task.ownerRole))}</strong>
@@ -317,7 +341,7 @@ function renderSessions(sessions) {
 
 function renderTasks(tasks) {
   if (tasks.length === 0) {
-    elements.taskTable.innerHTML = `<div class="empty-state">还没有内部步骤。目标开始后，这里只用于排障。</div>`;
+    elements.taskTable.innerHTML = `<div class="empty-state">还没有底层执行记录。目标开始后，这里只用于排障。</div>`;
     return;
   }
   elements.taskTable.innerHTML = tasks.map((task) => `
@@ -360,7 +384,7 @@ function renderTaskIssue(task) {
   if (!["rework", "blocked", "failed"].includes(task.state)) return "";
   const details = taskIssueDetails(task).slice(0, 4);
   if (details.length === 0) {
-    return `<div class="diagnosis bad"><strong>任务已停止，需要人工处理或重试。</strong></div>`;
+    return `<div class="diagnosis bad"><strong>执行会话已停止，需要人工处理或重跑。</strong></div>`;
   }
   return `
     <div class="diagnosis bad">
@@ -394,7 +418,7 @@ function renderTaskActions(task) {
   }
 
   if (buttons.length === 0) {
-    return `<div class="row-actions"><span class="inline-note">由目标卡片自动推进</span></div>`;
+    return `<div class="row-actions"><span class="inline-note">由管家接管状态推进</span></div>`;
   }
   return `<div class="row-actions">${buttons.join("")}</div>`;
 }
@@ -422,17 +446,17 @@ function goalStatusTitle(progress) {
   if (progress.status === "waiting") return "等待前置步骤";
   if (progress.status === "stalled" && canAutoRecover(progress)) return "可自动修复";
   if (progress.status === "stalled") return "需要处理";
-  return "等待任务";
+  return "等待管家调度";
 }
 
 function goalStatusText(progress) {
   if (!progress) return "输入目标后，Butler 会开始生成执行链。";
   if (progress.status === "complete") return "目标链路已经跑完。需要查看细节时再展开排障区。";
-  if (progress.status === "runnable") return "下一步已经准备好。推荐点“继续自动推进”，让 Butler 处理到完成或明确边界。";
-  if (progress.status === "active") return "Butler 正在处理这一轮，稍后会自动刷新状态。";
+  if (progress.status === "runnable") return "下一步已经准备好。推荐让管家继续推进到完成或明确边界。";
+  if (progress.status === "active") return "管家正在等待执行会话返回，稍后会自动刷新状态。";
   if (progress.status === "waiting") return "前置步骤还没有完成。等上一轮结果回来后继续推进。";
   if (progress.status === "stalled" && canAutoRecover(progress)) {
-    return "这一步返回的格式不合格，不是你要手动排查的问题。点“自动修复并继续”，Butler 会重新跑这一轮并继续推进。";
+    return "执行会话返回的格式不合格，不是你要手动排查的问题。让管家修复并继续即可。";
   }
   if (progress.status === "stalled") {
     return "Butler 已处理到当前边界，但这一步仍没有给出合格交付。先展开错误原文确认原因，再决定重新规划或人工处理。";
@@ -441,21 +465,66 @@ function goalStatusText(progress) {
 }
 
 function nextActionText(progress) {
-  if (!progress) return "下一步：输入目标后自动建立处理链路。";
+  if (!progress) return "下一步：输入目标后，管家自动建立执行链。";
   if (progress.status === "complete") return "下一步：查看结果或开始一个新目标。";
   if (progress.status === "stalled" && canAutoRecover(progress)) {
-    return "下一步：让 Butler 自动修复这次交付格式问题，并继续跑后续步骤。";
+    return "下一步：让管家修复这次交付格式问题，并继续调度后续执行会话。";
   }
   if (progress.status === "stalled") return "下一步：展开错误原文，确认是否需要调整目标或人工处理。";
   if (progress.status === "waiting") return "下一步：等待前置结果完成后继续。";
-  if (progress.status === "active") return "下一步：等待当前步骤返回，页面会自动刷新。";
-  return "下一步：继续自动推进到完成或明确边界。";
+  if (progress.status === "active") return "下一步：等待执行会话返回，页面会自动刷新。";
+  return "下一步：让管家继续推进到完成或明确边界。";
 }
 
 function primaryGoalAction(progress) {
-  if (progress?.status === "stalled" && canAutoRecover(progress)) return "自动修复并继续";
+  if (progress?.status === "stalled" && canAutoRecover(progress)) return "让管家修复并继续";
   if (progress?.status === "complete") return "查看结果";
-  return "继续自动推进";
+  return "让管家继续推进";
+}
+
+function butlerPhase(progress) {
+  if (!progress) {
+    return {
+      title: "待命",
+      detail: "还没有目标交给管家。"
+    };
+  }
+  if (progress.status === "complete") {
+    return {
+      title: "交付完成",
+      detail: "管家已经跑完整条执行链。"
+    };
+  }
+  if (progress.status === "stalled" && canAutoRecover(progress)) {
+    return {
+      title: "可自修复",
+      detail: "问题在执行会话的交付格式，管家可以重新调度一次。"
+    };
+  }
+  if (progress.status === "stalled") {
+    return {
+      title: "需要你判断",
+      detail: "管家已经推进到边界，需要你确认是否改目标、重跑或人工处理。"
+    };
+  }
+  if (progress.status === "active") {
+    return {
+      title: "等待执行会话",
+      detail: "管家已派发当前步骤，正在等结果返回。"
+    };
+  }
+  return {
+    title: "可继续推进",
+    detail: "管家可以继续调度下一批执行会话。"
+  };
+}
+
+function summarizeSessions(sessions) {
+  return {
+    controllers: sessions.filter((session) => session.role === "butler-controller").length,
+    reusable: sessions.filter((session) => session.role !== "butler-controller" && session.health?.status === "reachable").length,
+    unreachable: sessions.filter((session) => session.health?.status === "unreachable").length
+  };
 }
 
 function canAutoRecover(progress) {
