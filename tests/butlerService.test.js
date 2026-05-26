@@ -243,6 +243,39 @@ test("service reports active progress before downstream waiting tasks", async ()
   assert.match(progress.message, /正在处理/);
 });
 
+test("service reports blocked progress as needing user calibration", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+  const planned = await service.planGoal({
+    objective: "Build a product-ready flow",
+    verificationCommand: [process.execPath, "-e", "process.exit(0)"]
+  });
+
+  const state = await service.state.load();
+  const blockedTask = planned.tasks[0];
+  state.tasks[blockedTask.id] = {
+    ...state.tasks[blockedTask.id],
+    state: "blocked",
+    handoff: {
+      result: {
+        status: "blocked",
+        summary: "Choose the primary product maturity target before implementation.",
+        evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+        risks: ["Proceeding would optimize the wrong layer."]
+      },
+      validation: { ok: true, errors: [] }
+    }
+  };
+  await service.state.save(state);
+
+  const dashboard = await service.dashboard();
+  const progress = dashboard.goalProgress[planned.goal.id];
+  assert.equal(progress.status, "stalled");
+  assert.equal(progress.taskState, "blocked");
+  assert.match(progress.message, /需要你补充信息/);
+  assert.match(progress.details[0], /Choose the primary product maturity target/);
+});
+
 test("service can retry a task stopped in rework", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({

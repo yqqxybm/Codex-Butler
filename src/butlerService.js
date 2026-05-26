@@ -816,12 +816,15 @@ function describeGoalProgress(state, goalId) {
     const details = taskIssueDetails(stalled);
     const recoverable = isRecoverableTask(stalled);
     const recoveries = autoRecoverCount(stalled);
+    const message = stalled.state === "blocked"
+      ? `自动推进已暂停：这一步需要你补充信息${details[0] ? `，${details[0]}` : "。"}`
+      : recoverable && recoveries < 1
+        ? "这一步交付格式不合格，但可以自动重跑一次。"
+        : `自动推进已停止：这一步仍未给出合格交付${details[0] ? `，${details[0]}` : "。"}`;
     return {
       status: "stalled",
       complete: false,
-      message: recoverable && recoveries < 1
-        ? "这一步交付格式不合格，但可以自动重跑一次。"
-        : `自动推进已停止：这一步仍未给出合格交付${details[0] ? `，${details[0]}` : "。"}`,
+      message,
       taskId: stalled.id,
       taskState: stalled.state,
       ownerRole: stalled.ownerRole,
@@ -876,7 +879,10 @@ function taskIssueDetails(task) {
     ?? latestHistoryValidationErrors(task)
     ?? [];
   const risks = Array.isArray(task.handoff?.result?.risks) ? task.handoff.result.risks : [];
-  const details = [...validationErrors];
+  const blockedSummary = task.state === "blocked" && typeof task.handoff?.result?.summary === "string"
+    ? [`需要确认：${task.handoff.result.summary}`]
+    : [];
+  const details = [...blockedSummary, ...validationErrors];
   if (task.verification?.exitCode && task.verification.exitCode !== 0) {
     details.push(`verification command exited ${task.verification.exitCode}: ${task.verification.command?.join(" ") ?? "unknown command"}`);
   }

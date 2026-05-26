@@ -449,6 +449,7 @@ function goalTone(progress) {
 function nextActionText(progress) {
   if (!progress) return "下一步：输入目标后，管家自动建立执行链。";
   if (progress.status === "complete") return "下一步：查看结果或开始一个新目标。";
+  if (isBlockedProgress(progress)) return "下一步：先确认排障原因里的问题；补充目标后再继续。";
   if (progress.status === "stalled") return "推荐操作：重新跑这一步并继续。";
   if (progress.status === "waiting") return "下一步：等待前置结果完成后继续。";
   if (progress.status === "active") return "下一步：等待执行会话返回，页面会自动刷新。";
@@ -456,6 +457,13 @@ function nextActionText(progress) {
 }
 
 function primaryGoalAction(progress) {
+  if (isBlockedProgress(progress)) {
+    return {
+      action: "refresh",
+      label: "需要补充信息",
+      disabled: true
+    };
+  }
   if (progress?.status === "stalled" && progress.taskId) {
     return {
       action: "retry-and-advance",
@@ -495,6 +503,12 @@ function butlerPhase(progress) {
     };
   }
   if (progress.status === "stalled") {
+    if (progress.taskState === "blocked") {
+      return {
+        title: "需要你确认",
+        detail: "当前步骤缺少决策信息，直接重跑不会解决。"
+      };
+    }
     return {
       title: "卡住了",
       detail: "执行会话没有交付合格结果。你不用先看排障细节，建议直接重新跑这一步。"
@@ -516,6 +530,10 @@ function butlerPhase(progress) {
     title: "可以继续",
     detail: "下一步已经准备好。点主按钮让管家继续。"
   };
+}
+
+function isBlockedProgress(progress) {
+  return progress?.status === "stalled" && progress.taskState === "blocked";
 }
 
 function goalProgressText(tasks) {
@@ -562,6 +580,9 @@ function stoppedResultMessage(result) {
   if (!target || target.ok !== false) return null;
   if (target.actions?.some((action) => action.action === "auto-retry")) {
     return "管家已经自动重跑过一次，但这一步还是没交付合格结果。建议点“重新跑这一步并继续”。";
+  }
+  if (target.progress?.status === "stalled" && target.progress.taskState === "blocked") {
+    return "管家需要你确认一个前提。请查看当前目标里的排障原因，补充目标后再继续。";
   }
   if (target.progress?.status === "stalled") {
     return "管家停住了：执行会话没有交付合格结果。建议点“重新跑这一步并继续”。";
@@ -629,11 +650,14 @@ function taskRoleLabel(role) {
 
 function taskIssueDetails(task) {
   const validationErrors = task.handoff?.validation?.errors ?? latestHistoryValidationErrors(task);
+  const blockedSummary = task.state === "blocked" && typeof task.handoff?.result?.summary === "string"
+    ? [`需要确认：${task.handoff.result.summary}`]
+    : [];
   const risks = Array.isArray(task.handoff?.result?.risks) ? task.handoff.result.risks.map((risk) => `risk: ${risk}`) : [];
   const verification = task.verification?.exitCode
     ? [`verification command exited ${task.verification.exitCode}: ${(task.verification.command ?? []).join(" ")}`]
     : [];
-  return [...validationErrors, ...verification, ...risks];
+  return [...blockedSummary, ...validationErrors, ...verification, ...risks];
 }
 
 function latestHistoryValidationErrors(task) {
