@@ -34,6 +34,7 @@ test("extractor does not treat a model claim as external verification", () => {
 test("transcript evidence upgrades worker result only when stronger", () => {
   const result = applyTranscriptEvidence({
     status: "done",
+    summary: "checked evidence upgrade",
     evidence: {
       skill_read: "declared",
       files_changed: [],

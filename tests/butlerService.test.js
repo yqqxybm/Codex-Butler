@@ -15,6 +15,7 @@ test("service creates goals, tasks, dispatches, verifies, and promotes no-diff t
     projectRoot: dir,
     clientFactory: () => fakeClient({
       status: "done",
+      summary: "verified no-diff task",
       evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
       risks: []
     })
@@ -66,6 +67,7 @@ test("service repairs malformed worker handoff with a structured follow-up turn"
       "I cannot return the handoff yet.",
       {
         status: "done",
+        summary: "repaired structured handoff",
         evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
         risks: []
       }
@@ -95,6 +97,7 @@ test("service accepts declared skill evidence when Butler loaded the required sk
       projectRoot: dir,
       clientFactory: () => fakeClient({
         status: "done",
+        summary: "loaded required skill",
         evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
         risks: []
       })
@@ -121,6 +124,7 @@ test("failed verifier records failure event and routes task to rework", async ()
     projectRoot: dir,
     clientFactory: () => fakeClient({
       status: "done",
+      summary: "valid handoff before verifier failure",
       evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
       risks: []
     })
@@ -164,6 +168,7 @@ test("service advances a planned goal through the product pipeline", async () =>
     projectRoot: dir,
     clientFactory: () => fakeClient({
       status: "done",
+      summary: "completed no-diff product pipeline",
       evidence: { skill_read: "externally-verified", files_changed: [], commands_run: [] },
       risks: []
     })

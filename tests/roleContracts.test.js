@@ -26,6 +26,7 @@ test("worker result requires externally verified skill usage", () => {
   });
   const invalid = validateWorkerResult(order, {
     status: "done",
+    summary: "reviewed worker output",
     evidence: {
       skill_read: "declared",
       files_changed: [],
@@ -38,6 +39,7 @@ test("worker result requires externally verified skill usage", () => {
 
   const valid = validateWorkerResult(order, {
     status: "done",
+    summary: "reviewed worker output",
     evidence: {
       skill_read: "externally-verified",
       files_changed: [],
@@ -47,3 +49,19 @@ test("worker result requires externally verified skill usage", () => {
   });
   assert.equal(valid.ok, true);
 });
+
+test("worker output schema is strict-compatible with app-server response format", () => {
+  assertStrictRequiredProperties(WORKER_OUTPUT_SCHEMA);
+});
+
+function assertStrictRequiredProperties(schema, path = "$") {
+  if (!schema?.properties) return;
+  assert.deepEqual(
+    new Set(schema.required),
+    new Set(Object.keys(schema.properties)),
+    `${path} required must include every declared property`
+  );
+  for (const [key, value] of Object.entries(schema.properties)) {
+    assertStrictRequiredProperties(value, `${path}.${key}`);
+  }
+}

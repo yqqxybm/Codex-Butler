@@ -70,7 +70,7 @@ export const ROLE_CONTRACTS = Object.freeze({
 
 export const WORKER_OUTPUT_SCHEMA = Object.freeze({
   type: "object",
-  required: ["status", "evidence", "risks"],
+  required: ["status", "summary", "evidence", "risks"],
   additionalProperties: false,
   properties: {
     status: {
@@ -125,6 +125,9 @@ export function validateWorkerResult(workOrder, result) {
   const errors = [];
   if (!["done", "needs_rework", "blocked"].includes(result?.status)) {
     errors.push("status must be done, needs_rework, or blocked");
+  }
+  if (typeof result?.summary !== "string") {
+    errors.push("summary must be a string");
   }
   if (!EVIDENCE_LEVELS.includes(result?.evidence?.skill_read)) {
     errors.push("evidence.skill_read must be a known evidence level");
