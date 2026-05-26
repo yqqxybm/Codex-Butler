@@ -831,6 +831,19 @@ function describeGoalProgress(state, goalId) {
     };
   }
 
+  const active = tasks.find((task) => ["leased", "dispatched", "awaiting_result", "validating", "review"].includes(task.state));
+  if (active) {
+    return {
+      status: "active",
+      complete: false,
+      message: "管家正在处理当前步骤。",
+      taskId: active.id,
+      taskState: active.state,
+      ownerRole: active.ownerRole,
+      details: []
+    };
+  }
+
   const waiting = tasks.find((task) => task.state === "queued");
   if (waiting) {
     const unmetPrerequisites = (waiting.prerequisites ?? [])
@@ -843,19 +856,6 @@ function describeGoalProgress(state, goalId) {
       taskState: waiting.state,
       ownerRole: waiting.ownerRole,
       unmetPrerequisites,
-      details: []
-    };
-  }
-
-  const active = tasks.find((task) => ["leased", "dispatched", "awaiting_result", "validating", "review"].includes(task.state));
-  if (active) {
-    return {
-      status: "active",
-      complete: false,
-      message: "Butler 正在处理当前步骤。",
-      taskId: active.id,
-      taskState: active.state,
-      ownerRole: active.ownerRole,
       details: []
     };
   }

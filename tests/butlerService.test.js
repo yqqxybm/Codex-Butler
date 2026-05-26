@@ -214,6 +214,30 @@ test("service reports stalled goal progress when auto-advance hits rework", asyn
   assert.ok(result.actions.some((action) => action.action === "auto-retry"));
 });
 
+test("service reports active progress before downstream waiting tasks", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+  const planned = await service.planGoal({
+    objective: "Build a product-ready flow",
+    verificationCommand: [process.execPath, "-e", "process.exit(0)"]
+  });
+
+  const state = await service.state.load();
+  const activeTask = planned.tasks[0];
+  state.tasks[activeTask.id] = {
+    ...state.tasks[activeTask.id],
+    state: "awaiting_result"
+  };
+  await service.state.save(state);
+
+  const dashboard = await service.dashboard();
+  const progress = dashboard.goalProgress[planned.goal.id];
+  assert.equal(progress.status, "active");
+  assert.equal(progress.taskId, activeTask.id);
+  assert.equal(progress.taskState, "awaiting_result");
+  assert.match(progress.message, /正在处理/);
+});
+
 test("service can retry a task stopped in rework", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({
