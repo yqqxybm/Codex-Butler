@@ -301,6 +301,44 @@ test("service can retry a task stopped in rework", async () => {
   assert.equal(events.at(-1).type, "task.requeued");
 });
 
+test("service resumes a blocked task with calibration context", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+  const goal = await service.submitGoal({ objective: "mature the product" });
+  const task = await service.createTask({
+    goalId: goal.id,
+    role: "analysis-worker",
+    objective: "Analyze product maturity"
+  });
+  const state = await service.state.load();
+  state.tasks[task.id] = {
+    ...state.tasks[task.id],
+    state: "blocked",
+    handoff: {
+      result: {
+        status: "blocked",
+        summary: "Pick a primary target.",
+        evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+        risks: []
+      },
+      validation: { ok: true, errors: [] }
+    }
+  };
+  await service.state.save(state);
+
+  const resumed = await service.resumeBlockedTask({
+    taskId: task.id,
+    note: "Use product usability as the primary maturity target."
+  });
+
+  assert.equal(resumed.state, "queued");
+  assert.equal(resumed.handoff, undefined);
+  assert.match(resumed.contextNotes[0].note, /product usability/);
+
+  const events = await service.readLedger();
+  assert.equal(events.at(-1).type, "task.resumed");
+});
+
 test("verifier and promoter gate tasks target the implementation task", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({ projectRoot: dir });

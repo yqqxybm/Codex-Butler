@@ -8,11 +8,13 @@ test("iteration worker work order carries the required skill and forbidden actio
     taskId: "t1",
     goal: "g1",
     objective: "Change code in a task worktree",
-    ownedScope: "worktrees/t1"
+    ownedScope: "worktrees/t1",
+    contextNotes: [{ note: "Prefer product usability." }]
   });
   assert.equal(order.requiredSkill, "project-iteration");
   assert.match(order.requiredSkillPath, /\/\.codex\/skills\/project-iteration\/SKILL\.md$/);
   assert.ok(order.forbidden.includes("edit_main_workspace"));
+  assert.deepEqual(order.contextNotes, [{ note: "Prefer product usability." }]);
   assert.equal(order.outputSchema, WORKER_OUTPUT_SCHEMA);
 });
 

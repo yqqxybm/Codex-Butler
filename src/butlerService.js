@@ -490,7 +490,8 @@ export class ButlerService {
       goal: goal.objective,
       objective: task.objective,
       ownedScope: task.ownedScope,
-      targetTaskId: task.targetTaskId
+      targetTaskId: task.targetTaskId,
+      contextNotes: task.contextNotes ?? []
     });
     const skillSource = await loadRequiredSkill(workOrder);
     if (skillSource.ok) {
@@ -683,6 +684,33 @@ export class ButlerService {
     state.tasks[taskId] = task;
     await this.state.save(state);
     await this.ledger.append("task.requeued", { taskId, previousState, source });
+    await this.refreshGoalState(task.goalId);
+    return task;
+  }
+
+  async resumeBlockedTask({ taskId, note, source = "user-calibration" }) {
+    const state = await this.state.load();
+    let task = requiredTask(state, taskId);
+    if (task.state !== "blocked") {
+      throw new Error(`Task ${taskId} cannot be resumed from state ${task.state}`);
+    }
+    const text = requiredText(note, "note");
+    const previousState = task.state;
+    const contextNote = {
+      at: new Date().toISOString(),
+      source,
+      note: text
+    };
+    task = transition(task, "queued", { source, previousState, note: text });
+    task.leaseId = null;
+    task.contextNotes = [...(task.contextNotes ?? []), contextNote];
+    delete task.threadId;
+    delete task.turnId;
+    delete task.handoff;
+    delete task.verification;
+    state.tasks[taskId] = task;
+    await this.state.save(state);
+    await this.ledger.append("task.resumed", { taskId, previousState, source, note: text });
     await this.refreshGoalState(task.goalId);
     return task;
   }

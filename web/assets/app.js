@@ -94,6 +94,29 @@ elements.goalsList.addEventListener("click", async (event) => {
     await refresh();
     return;
   }
+  if (action === "resume-and-advance") {
+    const taskId = button.dataset.taskId;
+    const input = button.closest(".primary-actions")?.querySelector("[data-calibration-input]");
+    const note = input?.value.trim() ?? "";
+    if (!note) {
+      showToast("先写一句确认信息，再让管家继续。", true, 7000);
+      input?.focus();
+      return;
+    }
+    await runAction("管家已收到确认并继续推进", async () => {
+      await api(`/api/tasks/${encodeURIComponent(taskId)}/resume`, {
+        body: JSON.stringify({ note })
+      });
+      return api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
+        body: JSON.stringify({ maxSteps })
+      });
+    }, {
+      button,
+      pendingMessage: "管家正在带着你的确认重新分析，然后继续推进。"
+    });
+    await refresh();
+    return;
+  }
   await runAction(maxSteps > 1 ? "管家已推进到当前边界" : "管家已推进下一步", () => api(`/api/goals/${encodeURIComponent(goalId)}/advance`, {
     body: JSON.stringify({ maxSteps })
   }), {
@@ -316,6 +339,7 @@ function renderGoalActions(goal, progress) {
   const disabled = primary.disabled ? " disabled" : "";
   return `
     <div class="row-actions primary-actions">
+      ${isBlockedProgress(progress) ? `<textarea class="calibration-input" data-calibration-input rows="3" placeholder="例如：先以产品可用性为主，优先把网页操作、状态解释和错误恢复做清楚。"></textarea>` : ""}
       <button class="mini-button primary-mini" data-goal-action="${escapeHtml(primary.action)}" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="20"${taskAttribute}${disabled}>${escapeHtml(primary.label)}</button>
     </div>
   `;
@@ -459,9 +483,9 @@ function nextActionText(progress) {
 function primaryGoalAction(progress) {
   if (isBlockedProgress(progress)) {
     return {
-      action: "refresh",
-      label: "需要补充信息",
-      disabled: true
+      action: "resume-and-advance",
+      label: "提交确认并继续",
+      taskId: progress.taskId
     };
   }
   if (progress?.status === "stalled" && progress.taskId) {

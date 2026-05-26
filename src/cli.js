@@ -141,6 +141,14 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "resume-task") {
+    const [taskId, ...noteParts] = args;
+    const note = noteParts.join(" ");
+    if (!taskId || !note) throw new Error("usage: codex-butler resume-task <task-id> <calibration-note>");
+    console.log(JSON.stringify(await createDefaultService().resumeBlockedTask({ taskId, note }), null, 2));
+    return 0;
+  }
+
   if (command === "register-session") {
     const parsed = parseSessionArgs(args);
     console.log(JSON.stringify(await createDefaultService().registerSession(parsed), null, 2));
@@ -304,6 +312,9 @@ Commands:
 
   retry-task <task-id>
     Requeue a task that stopped in rework or blocked state.
+
+  resume-task <task-id> <calibration-note>
+    Add user calibration to a blocked task and requeue it.
 
   register-session <thread-id> [role] [--label name] [--cwd path] [--source existing-local|app-server|current-session|manual] [--notes text]
     Register an existing local Codex session/thread as Butler-managed state.

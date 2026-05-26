@@ -178,6 +178,13 @@ async function routeApi(method, url, request, response, service) {
       sendJson(response, 200, await service.retryTask({ taskId }));
       return;
     }
+    if (action === "resume") {
+      sendJson(response, 200, await service.resumeBlockedTask({
+        taskId,
+        note: requiredText(body.note, "note")
+      }));
+      return;
+    }
   }
 
   sendJson(response, 404, { error: "Not found" });

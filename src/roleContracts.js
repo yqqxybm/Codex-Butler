@@ -104,7 +104,7 @@ export const WORKER_OUTPUT_SCHEMA = Object.freeze({
   }
 });
 
-export function buildWorkOrder({ role, taskId, goal, ownedScope, objective, targetTaskId = null }) {
+export function buildWorkOrder({ role, taskId, goal, ownedScope, objective, targetTaskId = null, contextNotes = [] }) {
   const contract = ROLE_CONTRACTS[role];
   if (!contract) throw new Error(`Unknown role: ${role}`);
   return {
@@ -114,6 +114,7 @@ export function buildWorkOrder({ role, taskId, goal, ownedScope, objective, targ
     goal,
     objective,
     ownedScope,
+    contextNotes,
     requiredSkill: contract.requiredSkill,
     requiredSkillPath: contract.requiredSkill ? skillPath(contract.requiredSkill) : null,
     forbidden: contract.forbidden,

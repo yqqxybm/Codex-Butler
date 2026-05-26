@@ -241,7 +241,8 @@ h3 {
 }
 
 .button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
@@ -352,7 +353,8 @@ label {
   font-weight: 800;
 }
 
-input {
+input,
+textarea {
   min-height: 48px;
   min-width: min(520px, 100%);
   flex: 1;
@@ -361,6 +363,13 @@ input {
   padding: 0 var(--space-4);
   background: var(--color-surface-strong);
   color: var(--color-text);
+}
+
+textarea {
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+  line-height: 1.5;
+  resize: vertical;
 }
 
 .helper-text {
@@ -571,6 +580,11 @@ input {
   min-height: 48px;
   padding: 0 var(--space-5);
   font-size: var(--text-sm);
+}
+
+.calibration-input {
+  min-height: 88px;
+  flex-basis: min(620px, 100%);
 }
 
 .detail-actions {
