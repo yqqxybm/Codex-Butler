@@ -527,7 +527,7 @@ function butlerPhase(progress) {
     };
   }
   if (progress.status === "stalled") {
-    if (progress.taskState === "blocked") {
+    if (progress.taskState === "blocked" && !progress.recoverable) {
       return {
         title: "需要你确认",
         detail: "当前步骤缺少决策信息，直接重跑不会解决。"
@@ -557,7 +557,7 @@ function butlerPhase(progress) {
 }
 
 function isBlockedProgress(progress) {
-  return progress?.status === "stalled" && progress.taskState === "blocked";
+  return progress?.status === "stalled" && progress.taskState === "blocked" && !progress.recoverable;
 }
 
 function goalProgressText(tasks) {
@@ -675,7 +675,7 @@ function taskRoleLabel(role) {
 function taskIssueDetails(task) {
   const validationErrors = task.handoff?.validation?.errors ?? latestHistoryValidationErrors(task);
   const blockedSummary = task.state === "blocked" && typeof task.handoff?.result?.summary === "string"
-    ? [`需要确认：${task.handoff.result.summary}`]
+    ? [`${task.handoff?.recoverable ? "可重跑" : "需要确认"}：${task.handoff.result.summary}`]
     : [];
   const risks = Array.isArray(task.handoff?.result?.risks) ? task.handoff.result.risks.map((risk) => `risk: ${risk}`) : [];
   const verification = task.verification?.exitCode

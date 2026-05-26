@@ -31,6 +31,10 @@ export const SESSION_SOURCES = Object.freeze([
   "manual"
 ]);
 
+const WORKER_TURN_TIMEOUT_MS = 180000;
+const STALE_WORKER_TASK_MS = WORKER_TURN_TIMEOUT_MS + 60000;
+const IN_FLIGHT_TASK_STATES = Object.freeze(["leased", "dispatched", "awaiting_result"]);
+
 export class ButlerService {
   constructor(options = {}) {
     this.projectRoot = options.projectRoot ?? process.cwd();
@@ -359,6 +363,7 @@ export class ButlerService {
     const actions = [];
 
     for (let index = 0; index < stepLimit; index += 1) {
+      await this.reconcileStaleTasks();
       const state = await this.state.load();
       const goal = requiredGoal(state, normalizedGoalId);
       const tasks = orderedGoalTasks(state, goal.id);
@@ -517,15 +522,31 @@ export class ButlerService {
       const thread = await client.startEphemeralThread(workerCwd, {
         sandbox: task.worktreePath ? "workspace-write" : "read-only"
       });
+      task.threadId = thread.thread.id;
+      await this.updateLeasedTaskFields(taskId, task.leaseId, { threadId: task.threadId });
       const turn = await client.startTurn({
         threadId: thread.thread.id,
         inputText: prompt,
         outputSchema: WORKER_OUTPUT_SCHEMA,
         cwd: workerCwd,
-        sandboxPolicy
+        sandboxPolicy,
+        onStarted: async (start) => {
+          task.turnId = start.turn?.id ?? null;
+          if (task.turnId) {
+            await this.updateLeasedTaskFields(taskId, task.leaseId, { turnId: task.turnId });
+          }
+        }
       });
       const handoff = await this.parseWorkerHandoff({ turn, workOrder, prompt, client, threadId: thread.thread.id, workerCwd, sandboxPolicy });
-      task.threadId = thread.thread.id;
+      const latestState = await this.state.load();
+      const currentTask = latestState.tasks[taskId];
+      if (!isSameActiveLease(currentTask, task.leaseId)) {
+        return currentTask;
+      }
+      task = {
+        ...currentTask,
+        threadId: thread.thread.id
+      };
       task.turnId = handoff.turnId;
       task.handoff = handoff.handoff;
       if (handoff.parsed?.status === "blocked") {
@@ -538,13 +559,53 @@ export class ButlerService {
           task = transition(task, "verified", { validation: handoff.validation });
         }
       }
-      state.tasks[taskId] = task;
-      await this.state.save(state);
+      latestState.tasks[taskId] = task;
+      await this.state.save(latestState);
       await this.ledger.append("task.handoff_received", { taskId, threadId: task.threadId, turnId: task.turnId, validation: handoff.validation });
       return task;
+    } catch (error) {
+      return await this.blockWorkerDispatch({
+        taskId,
+        leaseId: task.leaseId,
+        error,
+        threadId: task.threadId ?? null,
+        turnId: task.turnId ?? null,
+        source: "worker-turn-failed"
+      });
     } finally {
       client.close();
     }
+  }
+
+  async updateLeasedTaskFields(taskId, leaseId, fields) {
+    const state = await this.state.load();
+    const task = state.tasks[taskId];
+    if (!isSameActiveLease(task, leaseId)) return false;
+    state.tasks[taskId] = { ...task, ...fields };
+    await this.state.save(state);
+    return true;
+  }
+
+  async blockWorkerDispatch({ taskId, leaseId, error, threadId = null, turnId = null, source = "worker-turn-failed" }) {
+    const state = await this.state.load();
+    let task = state.tasks[taskId];
+    if (!isSameActiveLease(task, leaseId)) return task;
+    const message = error?.message ?? String(error);
+    task = {
+      ...task,
+      threadId: threadId ?? task.threadId ?? null,
+      turnId: turnId ?? task.turnId ?? null,
+      handoff: workerFailureHandoff({
+        summary: "执行会话没有正常返回，可以重新跑这一步。",
+        risk: message
+      })
+    };
+    task = transition(task, "blocked", { source, error: message });
+    state.tasks[taskId] = task;
+    await this.state.save(state);
+    await this.ledger.append("task.dispatch_failed", { taskId, leaseId, source, error: message });
+    await this.refreshGoalState(task.goalId);
+    return task;
   }
 
   async parseWorkerHandoff({ turn, workOrder, prompt, client, threadId, workerCwd, sandboxPolicy }) {
@@ -715,7 +776,51 @@ export class ButlerService {
     return task;
   }
 
+  async reconcileStaleTasks({ maxAgeMs = STALE_WORKER_TASK_MS } = {}) {
+    const state = await this.state.load();
+    const now = Date.now();
+    const staleTasks = [];
+    for (const task of Object.values(state.tasks)) {
+      if (!IN_FLIGHT_TASK_STATES.includes(task.state)) continue;
+      const startedAt = latestStateEnteredAt(task, task.state);
+      if (!startedAt) continue;
+      const elapsedMs = now - startedAt.getTime();
+      if (elapsedMs < maxAgeMs) continue;
+      const summary = `执行会话超过 ${formatDuration(maxAgeMs)} 没有返回，可以重新跑这一步。`;
+      let next = {
+        ...task,
+        handoff: workerFailureHandoff({
+          summary,
+          risk: `No worker handoff was received after ${formatDuration(elapsedMs)}. The dispatch process may have exited or lost its app-server turn.`
+        })
+      };
+      next = transition(next, "blocked", {
+        source: "stale-worker-watchdog",
+        elapsedMs,
+        maxAgeMs
+      });
+      state.tasks[task.id] = next;
+      staleTasks.push(next);
+    }
+    if (staleTasks.length === 0) {
+      return { ok: true, stale: 0, tasks: [] };
+    }
+    await this.state.save(state);
+    for (const task of staleTasks) {
+      await this.ledger.append("task.stale_blocked", {
+        taskId: task.id,
+        leaseId: task.leaseId,
+        state: task.state,
+        threadId: task.threadId ?? null,
+        turnId: task.turnId ?? null
+      });
+      await this.refreshGoalState(task.goalId);
+    }
+    return { ok: true, stale: staleTasks.length, tasks: staleTasks };
+  }
+
   async status() {
+    await this.reconcileStaleTasks();
     const state = await this.state.load();
     return {
       projectRoot: this.projectRoot,
@@ -844,8 +949,10 @@ function describeGoalProgress(state, goalId) {
     const details = taskIssueDetails(stalled);
     const recoverable = isRecoverableTask(stalled);
     const recoveries = autoRecoverCount(stalled);
-    const message = stalled.state === "blocked"
-      ? `自动推进已暂停：这一步需要你补充信息${details[0] ? `，${details[0]}` : "。"}`
+    const message = stalled.state === "blocked" && recoverable
+      ? `自动推进已暂停：执行会话没有正常返回，可以重新跑这一步${details[0] ? `，${details[0]}` : "。"}`
+      : stalled.state === "blocked"
+        ? `自动推进已暂停：这一步需要你补充信息${details[0] ? `，${details[0]}` : "。"}`
       : recoverable && recoveries < 1
         ? "这一步交付格式不合格，但可以自动重跑一次。"
         : `自动推进已停止：这一步仍未给出合格交付${details[0] ? `，${details[0]}` : "。"}`;
@@ -908,7 +1015,7 @@ function taskIssueDetails(task) {
     ?? [];
   const risks = Array.isArray(task.handoff?.result?.risks) ? task.handoff.result.risks : [];
   const blockedSummary = task.state === "blocked" && typeof task.handoff?.result?.summary === "string"
-    ? [`需要确认：${task.handoff.result.summary}`]
+    ? [`${task.handoff?.recoverable ? "可重跑" : "需要确认"}：${task.handoff.result.summary}`]
     : [];
   const details = [...blockedSummary, ...validationErrors];
   if (task.verification?.exitCode && task.verification.exitCode !== 0) {
@@ -919,13 +1026,15 @@ function taskIssueDetails(task) {
 }
 
 function isRecoverableTask(task) {
-  if (!task || task.state !== "rework") return false;
+  if (!task) return false;
+  if (task.state === "blocked" && task.handoff?.recoverable === true) return true;
+  if (task.state !== "rework") return false;
   const errors = taskIssueDetails(task);
-  return errors.some((error) => /status must be|evidence\.skill_read|files_changed|commands_run|risks must|externally verified/i.test(error));
+  return errors.some((error) => /status must be|evidence\.skill_read|files_changed|commands_run|risks must|externally verified|timed out|没有正常返回|没有返回|stale/i.test(error));
 }
 
 function autoRecoverCount(task) {
-  return (task?.history ?? []).filter((event) => event.from === "rework"
+  return (task?.history ?? []).filter((event) => ["rework", "blocked"].includes(event.from)
     && event.to === "queued"
     && event.evidence?.source === "auto-retry").length;
 }
@@ -936,6 +1045,35 @@ function latestHistoryValidationErrors(task) {
     if (Array.isArray(errors) && errors.length > 0) return errors;
   }
   return [];
+}
+
+function isSameActiveLease(task, leaseId) {
+  return task?.leaseId === leaseId && IN_FLIGHT_TASK_STATES.includes(task.state);
+}
+
+function latestStateEnteredAt(task, state) {
+  for (const event of [...(task.history ?? [])].reverse()) {
+    if (event.to === state && event.at) return new Date(event.at);
+  }
+  return null;
+}
+
+function workerFailureHandoff({ summary, risk }) {
+  return {
+    result: {
+      status: "blocked",
+      summary,
+      evidence: { skill_read: "declared", files_changed: [], commands_run: [] },
+      risks: [risk]
+    },
+    validation: { ok: true, errors: [] },
+    recoverable: true
+  };
+}
+
+function formatDuration(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60000));
+  return `${minutes} 分钟`;
 }
 
 function statusToState(status) {

@@ -51,7 +51,7 @@ export class CodexAppServerClient {
     return this.client.request("command/exec", params, params.timeoutMs ? params.timeoutMs + 5000 : 15000);
   }
 
-  async startTurn({ threadId, inputText, outputSchema, cwd = null, sandboxPolicy = null, timeoutMs = 180000 }) {
+  async startTurn({ threadId, inputText, outputSchema, cwd = null, sandboxPolicy = null, timeoutMs = 180000, onStarted = null }) {
     await this.initialize();
     const notificationStart = this.client.notifications.length;
     const start = await this.client.request("turn/start", {
@@ -63,6 +63,7 @@ export class CodexAppServerClient {
       sandboxPolicy: sandboxPolicy ?? { type: "readOnly", networkAccess: false },
       effort: "low"
     }, timeoutMs);
+    if (onStarted) await onStarted(start);
     const completed = await this.client.waitForNotification(
       (notification) => notification.method === "turn/completed"
         && notification.params?.threadId === threadId

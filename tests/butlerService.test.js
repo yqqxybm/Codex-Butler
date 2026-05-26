@@ -243,6 +243,43 @@ test("service reports active progress before downstream waiting tasks", async ()
   assert.match(progress.message, /正在处理/);
 });
 
+test("service marks stale in-flight worker tasks as recoverable blocked work", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+  const goal = await service.submitGoal({ objective: "recover stale worker" });
+  const task = await service.createTask({
+    goalId: goal.id,
+    role: "review-worker",
+    objective: "review after a lost request"
+  });
+  const oldAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const state = await service.state.load();
+  state.tasks[task.id] = {
+    ...state.tasks[task.id],
+    state: "awaiting_result",
+    leaseId: "lease-stale",
+    history: [
+      ...state.tasks[task.id].history,
+      { from: "queued", to: "leased", at: oldAt, evidence: {} },
+      { from: "leased", to: "dispatched", at: oldAt, evidence: {} },
+      { from: "dispatched", to: "awaiting_result", at: oldAt, evidence: {} }
+    ]
+  };
+  await service.state.save(state);
+
+  const reconciled = await service.reconcileStaleTasks({ maxAgeMs: 1 });
+  assert.equal(reconciled.stale, 1);
+
+  const dashboard = await service.dashboard();
+  const progress = dashboard.goalProgress[goal.id];
+  const blocked = dashboard.status.tasks.find((item) => item.id === task.id);
+  assert.equal(blocked.state, "blocked");
+  assert.equal(blocked.handoff.recoverable, true);
+  assert.equal(progress.status, "stalled");
+  assert.equal(progress.recoverable, true);
+  assert.match(progress.message, /重新跑/);
+});
+
 test("service reports blocked progress as needing user calibration", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
   const service = new ButlerService({ projectRoot: dir });
@@ -337,6 +374,39 @@ test("service resumes a blocked task with calibration context", async () => {
 
   const events = await service.readLedger();
   assert.equal(events.at(-1).type, "task.resumed");
+});
+
+test("service blocks worker dispatch failures instead of leaving in-flight tasks", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({
+    projectRoot: dir,
+    clientFactory: () => ({
+      async startEphemeralThread() {
+        return { thread: { id: "thread-failed-turn" } };
+      },
+      async startTurn({ onStarted }) {
+        await onStarted?.({ turn: { id: "turn-failed" } });
+        throw new Error("Timed out waiting for turn/completed");
+      },
+      close() {}
+    })
+  });
+  const goal = await service.submitGoal({ objective: "exercise worker failure" });
+  const task = await service.createTask({
+    goalId: goal.id,
+    role: "verifier",
+    objective: "dispatch failure should be recoverable"
+  });
+
+  const dispatched = await service.dispatchTask({ taskId: task.id });
+  assert.equal(dispatched.state, "blocked");
+  assert.equal(dispatched.threadId, "thread-failed-turn");
+  assert.equal(dispatched.turnId, "turn-failed");
+  assert.equal(dispatched.handoff.recoverable, true);
+  assert.match(dispatched.handoff.result.risks[0], /Timed out/);
+
+  const events = await service.readLedger();
+  assert.equal(events.at(-1).type, "task.dispatch_failed");
 });
 
 test("verifier and promoter gate tasks target the implementation task", async () => {
