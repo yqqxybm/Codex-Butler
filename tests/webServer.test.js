@@ -16,7 +16,9 @@ test("web server serves the app shell and status API", async () => {
 
     const app = await fetchText(`${baseUrl}/assets/app.js`);
     assert.match(app, /目标已经完成，没有新的推进动作/);
-    assert.match(app, /网页推进不会把执行消息发回这个聊天窗口/);
+    assert.match(app, /是否能推进以 Codex resume 结果为准/);
+    assert.match(app, /接管并自动推进/);
+    assert.match(app, /sessionRunsList/);
 
     const status = await fetchJson(`${baseUrl}/api/status`);
     assert.equal(status.goals.length, 0);
@@ -42,6 +44,15 @@ test("web server exposes one-click product actions", async () => {
     },
     async resumeBlockedTask({ taskId, note }) {
       return { id: taskId, state: "queued", contextNotes: [{ note }] };
+    },
+    async startSessionRun({ sessionIdOrThreadId, objective, maxTurns }) {
+      return { ok: true, run: { id: "session-run-web", state: "active", sessionIdOrThreadId, objective, maxTurns } };
+    },
+    async advanceSessionRun({ runId, maxTurns }) {
+      return { ok: true, run: { id: runId, state: "active", maxTurns } };
+    },
+    async resumeSessionRun({ runId, note, maxTurns }) {
+      return { ok: true, run: { id: runId, state: "done", note, maxTurns } };
     }
   };
   const server = createWebServer({ service });
@@ -73,6 +84,25 @@ test("web server exposes one-click product actions", async () => {
       body: JSON.stringify({ note: "Use product usability first." })
     });
     assert.equal(resumed.contextNotes[0].note, "Use product usability first.");
+
+    const followed = await fetchJson(`${baseUrl}/api/sessions/session-web/autopilot`, {
+      method: "POST",
+      body: JSON.stringify({ objective: "Finish this session", maxTurns: 2 })
+    });
+    assert.equal(followed.run.id, "session-run-web");
+    assert.equal(followed.run.maxTurns, 2);
+
+    const runAdvanced = await fetchJson(`${baseUrl}/api/session-runs/session-run-web/advance`, {
+      method: "POST",
+      body: JSON.stringify({ maxTurns: 2 })
+    });
+    assert.equal(runAdvanced.run.id, "session-run-web");
+
+    const runResumed = await fetchJson(`${baseUrl}/api/session-runs/session-run-web/resume`, {
+      method: "POST",
+      body: JSON.stringify({ note: "Choose simple mode.", maxTurns: 2 })
+    });
+    assert.equal(runResumed.run.state, "done");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());

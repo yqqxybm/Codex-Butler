@@ -7,7 +7,7 @@ User
   -> Butler Codex Session
   -> codex-butler MCP tools
   -> codex-butlerd deterministic service
-  -> Codex worker sessions
+  -> selected Codex sessions / Codex worker sessions
   -> review / verifier / promotion gates
 ```
 
@@ -73,11 +73,27 @@ schema turn；只有 probe 成功的普通 session 才能被当前 transport 视
 的 probe 是附着检查：只验证它确实匹配当前进程的 `CODEX_THREAD_ID`，并保持 `attached`
 状态。单纯登记成功不等于 session 可用。
 
+### Session Runs
+
+`sessionRuns` 是面向用户的主产品路径。用户选择一个 Codex session 后，Butler 创建
+`session-run-*` 记录，并通过 `codex exec resume <session-id>` 恢复该 session。每一轮
+都会要求目标 session 继续推进当前任务，并返回结构化状态：
+
+- `in_progress`：已经推进，Butler 可继续下一轮；
+- `needs_user`：出现真实分叉，需要用户选择；
+- `done`：目标完成；
+- `blocked`：恢复 session、执行或验证失败。
+
+这条路径不依赖 app-server thread reachability。app-server probe 仍用于 worker transport
+诊断，但不能再作为“能否接管已有 Desktop session”的唯一判断。`codex-butlerd` 会自动推进
+active session run，一直到完成、阻塞或需要用户决策。
+
 ### Daemon Management
 
 `src/daemon.js` 管理本地 `codex-butlerd` 进程，支持 start/status/stop/run。
 daemon 会在 `.codex-butler/daemon.json` 记录 PID 和 heartbeat；stale PID 检测是确定性
-逻辑，并且有测试覆盖。
+逻辑，并且有测试覆盖。daemon heartbeat 同时会尝试推进到期的 active session run，避免
+网页点击后必须停留等待。
 
 ### Persistent Service
 

@@ -151,6 +151,36 @@ async function routeApi(method, url, request, response, service) {
       sendJson(response, 200, await service.probeSession({ sessionIdOrThreadId }));
       return;
     }
+    if (action === "autopilot") {
+      const body = await readJsonBody(request);
+      sendJson(response, 200, await service.startSessionRun({
+        sessionIdOrThreadId,
+        objective: body.objective,
+        maxTurns: body.maxTurns ?? 3
+      }));
+      return;
+    }
+  }
+  const sessionRunAction = /^\/api\/session-runs\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  if (method === "POST" && sessionRunAction) {
+    const runId = decodeURIComponent(sessionRunAction[1]);
+    const action = sessionRunAction[2];
+    const body = await readJsonBody(request);
+    if (action === "advance") {
+      sendJson(response, 200, await service.advanceSessionRun({
+        runId,
+        maxTurns: body.maxTurns ?? 3
+      }));
+      return;
+    }
+    if (action === "resume") {
+      sendJson(response, 200, await service.resumeSessionRun({
+        runId,
+        note: requiredText(body.note, "note"),
+        maxTurns: body.maxTurns ?? 3
+      }));
+      return;
+    }
   }
 
   const taskAction = /^\/api\/tasks\/([^/]+)\/([^/]+)$/.exec(url.pathname);

@@ -617,6 +617,65 @@ test("service marks managed session unreachable when probe turn fails", async ()
   assert.equal(updated.health.status, "unreachable");
 });
 
+test("service follows a selected session until user decision and resumes to done", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const execClient = fakeExecClientSequence([{
+    status: "in_progress",
+    summary: "implemented the next slice",
+    user_decision: "",
+    actions: ["updated files"],
+    risks: []
+  }, {
+    status: "needs_user",
+    summary: "two product paths remain",
+    user_decision: "Choose simple or advanced mode.",
+    actions: ["paused for decision"],
+    risks: []
+  }, {
+    status: "done",
+    summary: "completed after user decision",
+    user_decision: "",
+    actions: ["verified result"],
+    risks: []
+  }]);
+  const service = new ButlerService({
+    projectRoot: dir,
+    execClientFactory: () => execClient
+  });
+  const session = await service.registerSession({
+    threadId: "session-target",
+    role: "worker-session",
+    label: "Work Session"
+  });
+
+  const started = await service.startSessionRun({
+    sessionIdOrThreadId: session.id,
+    objective: "Finish the existing work",
+    maxTurns: 2
+  });
+  assert.equal(started.run.state, "needs_user");
+  assert.equal(started.run.targetThreadId, "session-target");
+  assert.equal(started.run.turns.length, 2);
+  assert.match(started.run.pendingUserDecision, /Choose simple/);
+
+  const resumed = await service.resumeSessionRun({
+    runId: started.run.id,
+    note: "Use simple mode.",
+    maxTurns: 2
+  });
+  assert.equal(resumed.run.state, "done");
+  assert.equal(resumed.run.turns.length, 3);
+  assert.deepEqual(execClient.calls.map((call) => call.sessionId), [
+    "session-target",
+    "session-target",
+    "session-target"
+  ]);
+
+  const dashboard = await service.dashboard();
+  assert.equal(dashboard.status.sessionRuns.length, 1);
+  assert.equal(dashboard.sessionRunProgress[started.run.id].status, "complete");
+});
+
 function fakeClient(result) {
   return fakeClientSequence([result]);
 }
@@ -636,6 +695,27 @@ function fakeClientSequence(results) {
       };
     },
     close() {}
+  };
+}
+
+function fakeExecClientSequence(results) {
+  let index = 0;
+  return {
+    calls: [],
+    async resumeSession({ sessionId, prompt, runId, turnIndex }) {
+      this.calls.push({ sessionId, prompt, runId, turnIndex });
+      const parsed = results[Math.min(index, results.length - 1)];
+      index += 1;
+      return {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        outputPath: `/tmp/${runId}-${turnIndex}.json`,
+        finalText: JSON.stringify(parsed),
+        parsed
+      };
+    }
   };
 }
 

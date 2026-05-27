@@ -2,9 +2,12 @@ export function renderDashboard(status, events = []) {
   const goals = status.goals ?? [];
   const tasks = status.tasks ?? [];
   const sessions = status.sessions ?? [];
+  const sessionRuns = status.sessionRuns ?? [];
   const activeGoals = goals.filter((goal) => !["done", "failed"].includes(goal.state));
   const doneGoals = goals.filter((goal) => goal.state === "done");
   const blockedGoals = goals.filter((goal) => goal.state === "blocked");
+  const activeSessionRuns = sessionRuns.filter((run) => run.state === "active");
+  const pausedSessionRuns = sessionRuns.filter((run) => ["needs_user", "blocked"].includes(run.state));
   const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
   const reachableButlers = butlerSessions.filter((session) => session.health?.status === "reachable");
   const attachedButlers = butlerSessions.filter((session) => session.health?.status === "attached");
@@ -15,6 +18,7 @@ export function renderDashboard(status, events = []) {
     `Data: ${status.dataDir}`,
     "",
     `Goals: ${goals.length} total, ${activeGoals.length} active, ${doneGoals.length} done, ${blockedGoals.length} blocked`,
+    `Session runs: ${sessionRuns.length} total, ${activeSessionRuns.length} active, ${pausedSessionRuns.length} need attention`,
     `Tasks: ${tasks.length} total${formatTaskCounts(taskCounts)}`,
     `Sessions: ${sessions.length} managed, ${butlerSessions.length} butler, ${reachableButlers.length} reachable butler, ${attachedButlers.length} attached current-session`,
     ""
@@ -25,6 +29,14 @@ export function renderDashboard(status, events = []) {
   else {
     for (const goal of activeGoals.slice(0, 8)) {
       lines.push(`- ${goal.id} [${goal.state}] ${goal.objective}`);
+    }
+  }
+
+  lines.push("", "Session Runs");
+  if (sessionRuns.length === 0) lines.push("- none");
+  else {
+    for (const run of sessionRuns.slice(0, 8)) {
+      lines.push(`- ${run.id} [${run.state}] ${run.targetLabel ?? run.targetThreadId}: ${run.objective}`);
     }
   }
 

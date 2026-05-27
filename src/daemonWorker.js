@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 import { runDaemon } from "./daemon.js";
+import { createDefaultService } from "./butlerService.js";
 
 const args = parseArgs(process.argv.slice(2));
+const projectRoot = args.projectRoot ?? process.cwd();
+const dataDir = args.dataDir;
+const service = createDefaultService({ projectRoot, dataDir });
 
 runDaemon({
-  projectRoot: args.projectRoot ?? process.cwd(),
-  dataDir: args.dataDir,
-  heartbeatMs: args.heartbeatMs ? Number(args.heartbeatMs) : undefined
+  projectRoot,
+  dataDir,
+  heartbeatMs: args.heartbeatMs ? Number(args.heartbeatMs) : undefined,
+  onHeartbeat: () => service.advanceActiveSessionRuns({ maxRuns: 1, maxTurns: 1 })
 }).catch((error) => {
   console.error(error.message);
   process.exit(1);

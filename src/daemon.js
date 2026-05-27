@@ -90,7 +90,9 @@ export async function runDaemon(options = {}) {
   const projectRoot = options.projectRoot ?? process.cwd();
   const dataDir = options.dataDir ?? join(projectRoot, ".codex-butler");
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const onHeartbeat = options.onHeartbeat ?? null;
   const startedAt = new Date().toISOString();
+  let heartbeatBusy = false;
   await mkdir(dataDir, { recursive: true });
   await writeDaemonRecord(dataDir, {
     status: "running",
@@ -103,6 +105,16 @@ export async function runDaemon(options = {}) {
 
   return new Promise((resolve) => {
     const heartbeat = setInterval(async () => {
+      if (onHeartbeat && !heartbeatBusy) {
+        heartbeatBusy = true;
+        try {
+          await onHeartbeat();
+        } catch {
+          // Keep the daemon alive; operational errors are reflected in Butler state.
+        } finally {
+          heartbeatBusy = false;
+        }
+      }
       await writeDaemonRecord(dataDir, {
         status: "running",
         pid: process.pid,

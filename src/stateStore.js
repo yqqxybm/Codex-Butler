@@ -24,7 +24,7 @@ export class StateStore {
 }
 
 function emptyState() {
-  return { goals: {}, tasks: {}, sessions: {} };
+  return { goals: {}, tasks: {}, sessions: {}, sessionRuns: {} };
 }
 
 function normalizeState(state) {
@@ -33,6 +33,7 @@ function normalizeState(state) {
     ...state,
     goals: state?.goals ?? {},
     tasks: state?.tasks ?? {},
-    sessions: state?.sessions ?? {}
+    sessions: state?.sessions ?? {},
+    sessionRuns: state?.sessionRuns ?? {}
   };
 }

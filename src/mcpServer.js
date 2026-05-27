@@ -132,6 +132,32 @@ export function createMcpServer(service = createDefaultService()) {
     inputSchema: {}
   }, () => service.probeAllSessions());
 
+  registerJsonTool(server, "butler_follow_session", {
+    description: "Start a Butler session run that resumes a selected Codex session and auto-advances it until done, blocked, or user choice.",
+    inputSchema: {
+      sessionIdOrThreadId: z.string().min(1),
+      objective: z.string().optional(),
+      maxTurns: z.number().int().positive().optional()
+    }
+  }, ({ sessionIdOrThreadId, objective, maxTurns }) => service.startSessionRun({ sessionIdOrThreadId, objective, maxTurns }));
+
+  registerJsonTool(server, "butler_advance_session_run", {
+    description: "Continue an active Butler session run.",
+    inputSchema: {
+      runId: z.string().min(1),
+      maxTurns: z.number().int().positive().optional()
+    }
+  }, ({ runId, maxTurns }) => service.advanceSessionRun({ runId, maxTurns }));
+
+  registerJsonTool(server, "butler_resume_session_run", {
+    description: "Provide a user decision and continue a paused Butler session run.",
+    inputSchema: {
+      runId: z.string().min(1),
+      note: z.string().min(1),
+      maxTurns: z.number().int().positive().optional()
+    }
+  }, ({ runId, note, maxTurns }) => service.resumeSessionRun({ runId, note, maxTurns }));
+
   registerJsonTool(server, "butler_status", {
     description: "Read Butler goals, tasks, states, and data location.",
     inputSchema: {}

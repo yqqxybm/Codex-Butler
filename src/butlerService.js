@@ -12,6 +12,7 @@ import { compilePlan } from "./planCompiler.js";
 import { applyTranscriptEvidence, extractSkillReadEvidence } from "./evidence.js";
 import { renderDashboard } from "./dashboard.js";
 import { readDaemonStatus, startDaemon, stopDaemon } from "./daemon.js";
+import { CodexExecClient } from "./codexExecClient.js";
 
 export const SESSION_ROLES = Object.freeze([
   "butler-controller",
@@ -34,6 +35,8 @@ export const SESSION_SOURCES = Object.freeze([
 const WORKER_TURN_TIMEOUT_MS = 180000;
 const STALE_WORKER_TASK_MS = WORKER_TURN_TIMEOUT_MS + 60000;
 const IN_FLIGHT_TASK_STATES = Object.freeze(["leased", "dispatched", "awaiting_result"]);
+const SESSION_RUN_COOLDOWN_MS = 15000;
+const SESSION_RUN_IN_FLIGHT_MS = 600000;
 
 export class ButlerService {
   constructor(options = {}) {
@@ -42,6 +45,10 @@ export class ButlerService {
     this.state = new StateStore(options.statePath ?? join(this.dataDir, "state.json"));
     this.ledger = new EventLedger(options.ledgerPath ?? join(this.dataDir, "events.jsonl"));
     this.clientFactory = options.clientFactory ?? (() => new CodexAppServerClient({ cwd: this.projectRoot }));
+    this.execClientFactory = options.execClientFactory ?? (() => new CodexExecClient({
+      cwd: this.projectRoot,
+      dataDir: this.dataDir
+    }));
   }
 
   async submitGoal({ objective }) {
@@ -353,6 +360,206 @@ export class ButlerService {
       ok: results.every((result) => result.ok),
       total: results.length,
       reachable: results.filter((result) => result.ok).length,
+      results
+    };
+  }
+
+  async startSessionRun({ sessionIdOrThreadId, objective = null, maxTurns = 3 }) {
+    const target = requiredText(sessionIdOrThreadId, "sessionIdOrThreadId");
+    const state = await this.state.load();
+    const session = resolveSessionTarget(state, target);
+    if (!session) throw new Error(`Unknown session: ${target}`);
+    const now = new Date().toISOString();
+    const run = {
+      kind: "session-run",
+      id: `session-run-${randomUUID()}`,
+      targetSessionId: session.id,
+      targetThreadId: session.threadId,
+      targetLabel: session.label,
+      targetSource: session.source,
+      objective: optionalText(objective) ?? "沿着这个 Codex session 已有上下文继续推进，直到完成或需要用户做选择。",
+      state: "active",
+      mode: "codex-exec-resume",
+      createdAt: now,
+      updatedAt: now,
+      nextCheckAt: new Date(Date.now() + SESSION_RUN_IN_FLIGHT_MS).toISOString(),
+      turns: [],
+      notes: []
+    };
+    state.sessionRuns[run.id] = run;
+    await this.state.save(state);
+    await this.ledger.append("session_run.started", {
+      runId: run.id,
+      targetSessionId: run.targetSessionId,
+      targetThreadId: run.targetThreadId,
+      objective: run.objective
+    });
+    return this.advanceSessionRun({ runId: run.id, maxTurns });
+  }
+
+  async advanceSessionRun({ runId, maxTurns = 3, note = null }) {
+    const normalizedRunId = requiredText(runId, "runId");
+    const stepLimit = Math.max(1, Math.min(Number(maxTurns) || 1, 20));
+    let state = await this.state.load();
+    let run = requiredSessionRun(state, normalizedRunId);
+    const noteText = optionalText(note);
+    if (noteText) {
+      run = {
+        ...run,
+        state: "active",
+        pendingUserDecision: null,
+        notes: [
+          ...(run.notes ?? []),
+          {
+            at: new Date().toISOString(),
+            source: "user-decision",
+            note: noteText
+          }
+        ],
+        updatedAt: new Date().toISOString(),
+        nextCheckAt: new Date().toISOString()
+      };
+      state.sessionRuns[run.id] = run;
+      await this.state.save(state);
+      await this.ledger.append("session_run.resumed", { runId: run.id, note: noteText });
+    } else if (run.state === "blocked") {
+      run = {
+        ...run,
+        state: "active",
+        blockedReason: null,
+        updatedAt: new Date().toISOString(),
+        nextCheckAt: new Date().toISOString()
+      };
+      state.sessionRuns[run.id] = run;
+      await this.state.save(state);
+      await this.ledger.append("session_run.retried", { runId: run.id });
+    } else if (!["active"].includes(run.state)) {
+      return {
+        ok: run.state === "done",
+        run,
+        actions: [{
+          action: "noop",
+          ok: run.state === "done",
+          reason: sessionRunStateMessage(run)
+        }]
+      };
+    }
+
+    run = {
+      ...run,
+      nextCheckAt: new Date(Date.now() + SESSION_RUN_IN_FLIGHT_MS).toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    state.sessionRuns[run.id] = run;
+    await this.state.save(state);
+
+    const actions = [];
+    for (let index = 0; index < stepLimit; index += 1) {
+      state = await this.state.load();
+      run = requiredSessionRun(state, normalizedRunId);
+      if (run.state !== "active") break;
+
+      const turnIndex = (run.turns ?? []).length + 1;
+      const client = this.execClientFactory();
+      const prompt = sessionRunPrompt(run, { note: noteText, turnIndex });
+      const result = await client.resumeSession({
+        sessionId: run.targetThreadId,
+        prompt,
+        runId: run.id,
+        turnIndex
+      });
+      const parsed = normalizeSessionRunResult(result.parsed);
+      const turnRecord = {
+        at: new Date().toISOString(),
+        turnIndex,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut === true,
+        outputPath: result.outputPath ?? null,
+        status: parsed?.status ?? null,
+        summary: parsed?.summary ?? null,
+        userDecision: parsed?.user_decision ?? null,
+        actions: parsed?.actions ?? [],
+        risks: parsed?.risks ?? []
+      };
+
+      run = {
+        ...run,
+        turns: [...(run.turns ?? []), turnRecord],
+        updatedAt: turnRecord.at
+      };
+
+      if (result.exitCode !== 0 || !parsed) {
+        run.state = "blocked";
+        run.blockedReason = result.timedOut
+          ? "选中的 session 本轮执行超时，需要重新推进或人工检查。"
+          : result.stderr || result.stdout || "选中的 session 没有返回合格的结构化结果。";
+        run.nextCheckAt = null;
+      } else if (parsed.status === "needs_user") {
+        run.state = "needs_user";
+        run.pendingUserDecision = parsed.user_decision || "需要你做一个选择后才能继续。";
+        run.nextCheckAt = null;
+      } else if (parsed.status === "done") {
+        run.state = "done";
+        run.completedAt = turnRecord.at;
+        run.nextCheckAt = null;
+      } else if (parsed.status === "blocked") {
+        run.state = "blocked";
+        run.blockedReason = parsed.summary || parsed.risks?.[0] || "选中的 session 报告无法继续。";
+        run.nextCheckAt = null;
+      } else {
+        run.state = "active";
+        run.nextCheckAt = new Date(Date.now() + SESSION_RUN_COOLDOWN_MS).toISOString();
+      }
+
+      state.sessionRuns[run.id] = run;
+      await this.state.save(state);
+      await this.ledger.append("session_run.turn", {
+        runId: run.id,
+        targetThreadId: run.targetThreadId,
+        turnIndex,
+        state: run.state,
+        exitCode: result.exitCode
+      });
+      actions.push({
+        action: "session-turn",
+        ok: result.exitCode === 0 && Boolean(parsed),
+        runId: run.id,
+        state: run.state,
+        status: parsed?.status ?? null,
+        summary: parsed?.summary ?? run.blockedReason ?? null
+      });
+
+      if (run.state !== "active") break;
+    }
+
+    state = await this.state.load();
+    run = requiredSessionRun(state, normalizedRunId);
+    return {
+      ok: !["blocked", "failed"].includes(run.state),
+      run,
+      actions,
+      progress: describeSessionRunProgress(run)
+    };
+  }
+
+  async resumeSessionRun({ runId, note, maxTurns = 3 }) {
+    return this.advanceSessionRun({ runId, note: requiredText(note, "note"), maxTurns });
+  }
+
+  async advanceActiveSessionRuns({ maxRuns = 2, maxTurns = 1 } = {}) {
+    const state = await this.state.load();
+    const now = Date.now();
+    const runs = Object.values(state.sessionRuns)
+      .filter((run) => run.state === "active")
+      .filter((run) => !run.nextCheckAt || new Date(run.nextCheckAt).getTime() <= now)
+      .slice(0, Math.max(1, Number(maxRuns) || 1));
+    const results = [];
+    for (const run of runs) {
+      results.push(await this.advanceSessionRun({ runId: run.id, maxTurns }));
+    }
+    return {
+      ok: results.every((result) => result.ok !== false),
+      advanced: results.length,
       results
     };
   }
@@ -827,7 +1034,8 @@ export class ButlerService {
       dataDir: this.dataDir,
       goals: Object.values(state.goals),
       tasks: Object.values(state.tasks),
-      sessions: Object.values(state.sessions)
+      sessions: Object.values(state.sessions),
+      sessionRuns: Object.values(state.sessionRuns)
     };
   }
 
@@ -844,6 +1052,10 @@ export class ButlerService {
       goalProgress: Object.fromEntries(status.goals.map((goal) => [
         goal.id,
         describeGoalProgress(statusToState(status), goal.id)
+      ])),
+      sessionRunProgress: Object.fromEntries(status.sessionRuns.map((run) => [
+        run.id,
+        describeSessionRunProgress(run)
       ])),
       recentEvents: events.slice(-8)
     };
@@ -876,6 +1088,12 @@ function requiredTask(state, taskId) {
   const task = state.tasks[taskId];
   if (!task) throw new Error(`Unknown task: ${taskId}`);
   return task;
+}
+
+function requiredSessionRun(state, runId) {
+  const run = state.sessionRuns[runId];
+  if (!run) throw new Error(`Unknown session run: ${runId}`);
+  return run;
 }
 
 function assertPrerequisitesMet(state, task) {
@@ -1025,6 +1243,62 @@ function taskIssueDetails(task) {
   return details;
 }
 
+function describeSessionRunProgress(run) {
+  const lastTurn = run.turns?.at?.(-1) ?? null;
+  if (run.state === "done") {
+    return {
+      status: "complete",
+      message: "这个 session 已经推进到完成。",
+      needsUser: false,
+      lastSummary: lastTurn?.summary ?? null,
+      details: []
+    };
+  }
+  if (run.state === "needs_user") {
+    return {
+      status: "needs_user",
+      message: run.pendingUserDecision || "需要你做一个选择后才能继续。",
+      needsUser: true,
+      lastSummary: lastTurn?.summary ?? null,
+      details: []
+    };
+  }
+  if (run.state === "blocked") {
+    return {
+      status: "blocked",
+      message: run.blockedReason || "管家无法继续推进这个 session。",
+      needsUser: true,
+      lastSummary: lastTurn?.summary ?? null,
+      details: lastTurn?.risks ?? []
+    };
+  }
+  return {
+    status: "active",
+    message: "管家正在持续推进这个 session。",
+    needsUser: false,
+    lastSummary: lastTurn?.summary ?? null,
+    nextCheckAt: run.nextCheckAt ?? null,
+    details: []
+  };
+}
+
+function sessionRunStateMessage(run) {
+  if (run.state === "done") return "这个 session run 已完成。";
+  if (run.state === "needs_user") return run.pendingUserDecision || "需要用户选择。";
+  if (run.state === "blocked") return run.blockedReason || "这个 session run 已阻塞。";
+  return "这个 session run 当前不可推进。";
+}
+
+function normalizeSessionRunResult(result) {
+  if (!result || typeof result !== "object") return null;
+  if (!["in_progress", "needs_user", "done", "blocked"].includes(result.status)) return null;
+  if (typeof result.summary !== "string") return null;
+  if (typeof result.user_decision !== "string") return null;
+  if (!Array.isArray(result.actions)) return null;
+  if (!Array.isArray(result.risks)) return null;
+  return result;
+}
+
 function isRecoverableTask(task) {
   if (!task) return false;
   if (task.state === "blocked" && task.handoff?.recoverable === true) return true;
@@ -1109,6 +1383,33 @@ function transitionGoalToward(goal, desiredState) {
 
 function needsWorktree(task) {
   return ["iteration-worker", "refine-worker"].includes(task.ownerRole);
+}
+
+function sessionRunPrompt(run, { note = null, turnIndex = 1 } = {}) {
+  const recentTurns = (run.turns ?? []).slice(-4).map((turn) => ({
+    turnIndex: turn.turnIndex,
+    status: turn.status,
+    summary: turn.summary,
+    userDecision: turn.userDecision,
+    actions: turn.actions,
+    risks: turn.risks
+  }));
+  const notes = (run.notes ?? []).slice(-4);
+  return [
+    "You are a Codex work session selected by Codex Butler for supervised auto-advance.",
+    "Continue the current task in this session toward the user's existing goal. Make concrete progress instead of reporting status only.",
+    "If the next step is clear, execute it. If code/doc/config changes are needed, make them and verify them according to the session's instructions.",
+    "Stop only when the goal is complete, a genuine user choice is required, or a real blocker prevents progress.",
+    "Return JSON only matching this schema: {\"status\":\"in_progress|needs_user|done|blocked\",\"summary\":\"...\",\"user_decision\":\"...\",\"actions\":[\"...\"],\"risks\":[\"...\"]}.",
+    "Use status \"needs_user\" only when the user must choose between materially different paths. Put the exact concise question in user_decision.",
+    "Use status \"done\" only when the target is actually achieved and verified. Use status \"in_progress\" if you made progress and Butler should continue.",
+    `Butler objective: ${run.objective}`,
+    `Target session: ${run.targetLabel ?? run.targetThreadId} (${run.targetThreadId})`,
+    `Butler run id: ${run.id}; turn: ${turnIndex}`,
+    note ? `Latest user decision: ${note}` : null,
+    notes.length > 0 ? `Prior user decisions:\n${JSON.stringify(notes, null, 2)}` : null,
+    recentTurns.length > 0 ? `Recent Butler tracking turns:\n${JSON.stringify(recentTurns, null, 2)}` : null
+  ].filter(Boolean).join("\n\n");
 }
 
 async function loadRequiredSkill(workOrder) {

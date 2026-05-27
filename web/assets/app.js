@@ -26,6 +26,7 @@ const elements = {
   sessionCount: document.querySelector("#sessionCount"),
   butlerSessionCount: document.querySelector("#butlerSessionCount"),
   goalsList: document.querySelector("#goalsList"),
+  sessionRunsList: document.querySelector("#sessionRunsList"),
   sessionsList: document.querySelector("#sessionsList"),
   taskTable: document.querySelector("#taskTable"),
   eventLog: document.querySelector("#eventLog"),
@@ -151,7 +152,50 @@ elements.sessionsList.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-session-action]");
   if (!button) return;
   const sessionId = button.dataset.sessionId;
-  await runAction("会话已检查", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`));
+  const action = button.dataset.sessionAction;
+  if (action === "autopilot") {
+    const objective = elements.objectiveInput.value.trim();
+    await runAction("管家已开始跟踪这个 session", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
+      body: JSON.stringify({ objective: objective || null, maxTurns: 3 })
+    }), {
+      button,
+      pendingMessage: "管家正在接管选中的 session，会连续推进到完成、阻塞或需要你选择。"
+    });
+    await refresh();
+    return;
+  }
+  await runAction("会话已检查", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`), { button });
+  await refresh();
+});
+
+elements.sessionRunsList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-run-action]");
+  if (!button) return;
+  const runId = button.dataset.runId;
+  const action = button.dataset.runAction;
+  if (action === "resume") {
+    const input = button.closest(".primary-actions")?.querySelector("[data-run-decision-input]");
+    const note = input?.value.trim() ?? "";
+    if (!note) {
+      showToast("先写下你的选择，再让管家继续。", true, 7000);
+      input?.focus();
+      return;
+    }
+    await runAction("管家已收到你的选择并继续", () => api(`/api/session-runs/${encodeURIComponent(runId)}/resume`, {
+      body: JSON.stringify({ note, maxTurns: 3 })
+    }), {
+      button,
+      pendingMessage: "管家正在带着你的选择继续推进这个 session。"
+    });
+    await refresh();
+    return;
+  }
+  await runAction("管家已继续推进这个 session", () => api(`/api/session-runs/${encodeURIComponent(runId)}/advance`, {
+    body: JSON.stringify({ maxTurns: 3 })
+  }), {
+    button,
+    pendingMessage: "管家正在继续推进这个 session。"
+  });
   await refresh();
 });
 
@@ -222,11 +266,14 @@ function render(data) {
   const goals = data.status.goals ?? [];
   const tasks = data.status.tasks ?? [];
   const sessions = data.status.sessions ?? [];
+  const sessionRuns = data.status.sessionRuns ?? [];
   const events = data.recentEvents ?? [];
   const activeGoals = goals.filter((goal) => !["done", "failed"].includes(goal.state));
+  const activeSessionRuns = sessionRuns.filter((run) => run.state === "active");
   const queuedTasks = tasks.filter((task) => task.state === "queued");
   const blocked = [
     ...goals.filter((goal) => goal.state === "blocked"),
+    ...sessionRuns.filter((run) => ["needs_user", "blocked"].includes(run.state)),
     ...tasks.filter((task) => ["blocked", "rework", "failed"].includes(task.state))
   ];
   const reusableSessions = sessions.filter((session) => session.health?.status === "reachable");
@@ -234,7 +281,7 @@ function render(data) {
   const unreachableSessions = sessions.filter((session) => session.health?.status === "unreachable");
 
   elements.goalCount.textContent = goals.length;
-  elements.activeGoalCount.textContent = `${activeGoals.length} 个进行中`;
+  elements.activeGoalCount.textContent = `${activeSessionRuns.length} 个 session 追踪中，${activeGoals.length} 个任务链进行中`;
   elements.taskCount.textContent = tasks.length;
   elements.queuedTaskCount.textContent = `${queuedTasks.length} 步等待推进`;
   elements.blockedCount.textContent = blocked.length;
@@ -242,6 +289,7 @@ function render(data) {
   elements.butlerSessionCount.textContent = `${reusableSessions.length} 个可复用，${attachedSessions.length} 个当前会话，${unreachableSessions.length} 个不可达`;
   renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
+  renderSessionRuns(sessionRuns, data.sessionRunProgress ?? {});
   renderGoals(goals, data.goalProgress ?? {}, tasks, sessions);
   renderSessions(sessions);
   renderTasks(tasks);
@@ -261,12 +309,12 @@ function renderDaemon(daemon) {
 function renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, daemon) {
   if (daemon?.status === "running") {
     elements.readinessTitle.textContent = "可以推进";
-    elements.readinessText.textContent = "后台已就绪。管家可以创建新的执行会话；旧会话只影响复用。";
+    elements.readinessText.textContent = "后台已就绪。选择一个 session 后，管家会用 resume 持续推进。";
     return;
   }
   if (sessions.length === 0) {
     elements.readinessTitle.textContent = "后台未运行";
-    elements.readinessText.textContent = "先点“启动后台”，再输入目标。";
+    elements.readinessText.textContent = "先点“启动后台”，再添加要接管的 session。";
     return;
   }
   if (reusableSessions.length > 0 || attachedSessions.length > 0) {
@@ -274,7 +322,7 @@ function renderReadiness(sessions, reusableSessions, attachedSessions, unreachab
     if (attachedSessions.length > 0 && reusableSessions.length > 0) {
       elements.readinessText.textContent = "已有会话可复用，当前会话已附着；后台仍需启动。";
     } else if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
-      elements.readinessText.textContent = "先启动后台。已有会话状态可在高级选项里查看。";
+      elements.readinessText.textContent = "先启动后台。已有会话可以尝试接管，连接检查只用于诊断。";
     } else if (attachedSessions.length > 0) {
       elements.readinessText.textContent = "当前 Codex 会话已附着，但后台仍需启动。";
     } else {
@@ -284,8 +332,71 @@ function renderReadiness(sessions, reusableSessions, attachedSessions, unreachab
   }
   elements.readinessTitle.textContent = "后台未运行";
   elements.readinessText.textContent = unreachableSessions.length > 0
-    ? "先启动后台。已登记的旧会话目前不可复用，但不影响创建新目标。"
+    ? "先启动后台。已登记 session 可尝试接管，失败原因会显示在主控台。"
     : "先启动后台；已有会话可稍后再检查。";
+}
+
+function renderSessionRuns(runs, runProgress) {
+  if (runs.length === 0) {
+    elements.sessionRunsList.innerHTML = `<div class="empty-state">还没有管家追踪。下面选一个 session，点“接管并自动推进”。</div>`;
+    return;
+  }
+  elements.sessionRunsList.innerHTML = runs.map((run) => {
+    const progress = runProgress[run.id] ?? sessionRunProgressFallback(run);
+    const lastTurn = run.turns?.at?.(-1) ?? null;
+    return `
+      <article class="goal-item ${sessionRunTone(run)}">
+        <p class="eyebrow">${escapeHtml(sessionRunStateLabel(run.state))}</p>
+        <p class="item-title">${escapeHtml(run.targetLabel ?? run.targetThreadId)}</p>
+        <div class="simple-status ${sessionRunTone(run)}">
+          <div>
+            <span class="diagnosis-label">管家追踪</span>
+            <strong>${escapeHtml(sessionRunPhaseTitle(run))}</strong>
+            <p>${escapeHtml(progress.message)}</p>
+          </div>
+          <p class="progress-summary">${escapeHtml(lastTurn?.summary ?? "等待第一轮推进结果。")}</p>
+        </div>
+        <p class="next-action">${escapeHtml(sessionRunNextAction(run, progress))}</p>
+        ${renderSessionRunActions(run, progress)}
+        <details class="technical-details">
+          <summary>追踪细节</summary>
+          <div class="item-meta">
+            <span class="pill ${classForState(run.state)}">${escapeHtml(run.state)}</span>
+            <span class="pill">${escapeHtml(shortId(run.id))}</span>
+            <span class="pill">${run.turns?.length ?? 0} 轮</span>
+          </div>
+          <p class="item-subtitle">${escapeHtml(run.objective)}</p>
+          <p class="item-subtitle">${escapeHtml(run.targetThreadId)} · ${escapeHtml(run.mode)}</p>
+        </details>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderSessionRunActions(run, progress) {
+  if (run.state === "done") {
+    return `<div class="row-actions primary-actions"><span class="inline-note">已达成目标。</span></div>`;
+  }
+  if (run.state === "needs_user") {
+    return `
+      <div class="row-actions primary-actions">
+        <textarea class="calibration-input" data-run-decision-input rows="3" placeholder="${escapeHtml(progress.message)}"></textarea>
+        <button class="mini-button primary-mini" data-run-action="resume" data-run-id="${escapeHtml(run.id)}">提交选择并继续</button>
+      </div>
+    `;
+  }
+  if (run.state === "blocked") {
+    return `
+      <div class="row-actions primary-actions">
+        <button class="mini-button primary-mini" data-run-action="advance" data-run-id="${escapeHtml(run.id)}">重试推进</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="row-actions primary-actions">
+      <button class="mini-button primary-mini" data-run-action="advance" data-run-id="${escapeHtml(run.id)}">继续自动推进</button>
+    </div>
+  `;
 }
 
 function renderGoals(goals, goalProgress, tasks, sessions) {
@@ -375,7 +486,7 @@ function renderGoalPipeline(tasks) {
 
 function renderSessions(sessions) {
   if (sessions.length === 0) {
-    elements.sessionsList.innerHTML = `<div class="empty-state">还没有登记已有会话。普通使用不需要先添加。</div>`;
+    elements.sessionsList.innerHTML = `<div class="empty-state">还没有 session。粘贴一个 Codex session/thread id，添加后点“接管并自动推进”。</div>`;
     return;
   }
   elements.sessionsList.innerHTML = sessions.map((session) => `
@@ -391,6 +502,7 @@ function renderSessions(sessions) {
         <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""} · ${escapeHtml(session.source)} · ${escapeHtml(shortId(session.id))}</p>
       </details>
       <div class="row-actions">
+        <button class="mini-button primary-mini" data-session-action="autopilot" data-session-id="${escapeHtml(session.id)}">接管并自动推进</button>
         <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">检查可用性</button>
       </div>
     </article>
@@ -478,6 +590,34 @@ function goalTone(progress) {
   if (progress.status === "complete") return "good";
   if (progress.status === "stalled") return "bad";
   return "warn";
+}
+
+function sessionRunTone(run) {
+  if (run.state === "done") return "good";
+  if (["needs_user", "blocked", "failed"].includes(run.state)) return "bad";
+  return "warn";
+}
+
+function sessionRunPhaseTitle(run) {
+  if (run.state === "done") return "已完成";
+  if (run.state === "needs_user") return "需要你选择";
+  if (run.state === "blocked") return "推进受阻";
+  return "自动推进中";
+}
+
+function sessionRunNextAction(run, progress) {
+  if (run.state === "done") return "下一步：查看结果，或选择另一个 session。";
+  if (run.state === "needs_user") return "下一步：写下你的选择，管家会继续推进这个 session。";
+  if (run.state === "blocked") return "下一步：重试推进；如果仍失败，再看追踪细节。";
+  if (progress.nextCheckAt) return `下一步：管家会自动继续，也可以手动点“继续自动推进”。`;
+  return "下一步：等待下一轮推进，或手动继续。";
+}
+
+function sessionRunProgressFallback(run) {
+  if (run.state === "done") return { message: "这个 session 已经推进到完成。" };
+  if (run.state === "needs_user") return { message: run.pendingUserDecision || "需要你做一个选择后才能继续。" };
+  if (run.state === "blocked") return { message: run.blockedReason || "管家无法继续推进这个 session。" };
+  return { message: "管家正在持续推进这个 session。", nextCheckAt: run.nextCheckAt ?? null };
 }
 
 function nextActionText(progress) {
@@ -595,8 +735,8 @@ function renderEvents(events) {
 
 function classForState(state) {
   if (["attached", "running", "planned", "validating", "verified", "promoted"].includes(state)) return "good";
-  if (["queued", "stopped", "intake", "review"].includes(state)) return "warn";
-  if (["blocked", "failed", "rework", "stale"].includes(state)) return "bad";
+  if (["queued", "stopped", "intake", "review", "active"].includes(state)) return "warn";
+  if (["blocked", "failed", "rework", "stale", "needs_user"].includes(state)) return "bad";
   return "neutral";
 }
 
@@ -610,6 +750,9 @@ function formatTime(value) {
 }
 
 function stoppedResultMessage(result) {
+  if (result?.run?.state === "blocked") {
+    return result.run.blockedReason ?? "管家无法继续推进这个 session。";
+  }
   const target = result?.advanced ?? result;
   if (!target) return null;
   if (target.ok !== false) return null;
@@ -627,6 +770,12 @@ function stoppedResultMessage(result) {
 }
 
 function completedResultMessage(result) {
+  if (result?.run?.state === "done") {
+    return "这个 session 已经推进到完成。";
+  }
+  if (result?.run?.state === "needs_user") {
+    return "管家已经推进到需要你选择的地方，请在主控台提交选择。";
+  }
   const target = result?.advanced ?? result;
   if (!target) return null;
   if (target.progress?.status === "complete" || target.actions?.some((action) => action.action === "done")) {
@@ -655,12 +804,23 @@ function sessionHealthLabel(status) {
   return "未检查";
 }
 
+function sessionRunStateLabel(state) {
+  const labels = {
+    active: "自动追踪中",
+    needs_user: "等待选择",
+    blocked: "已阻塞",
+    done: "已完成",
+    failed: "失败"
+  };
+  return labels[state] ?? state;
+}
+
 function sessionSummary(session) {
   const health = sessionHealthLabel(session.health?.status);
-  if (session.health?.status === "unreachable") return "这个旧会话现在不可复用，不影响新目标推进。";
-  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话是管家控制台；网页推进不会把执行消息发回这个聊天窗口。";
-  if (session.health?.status === "reachable") return "这个已有会话当前可复用。";
-  return `${health}；需要时可以检查可用性。`;
+  if (session.health?.status === "unreachable") return "连接检查不可达；仍可尝试接管，是否能推进以 Codex resume 结果为准。";
+  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话是管家控制台；可以接管，但建议优先选择其他工作 session。";
+  if (session.health?.status === "reachable") return "连接检查可达；可以接管并自动推进。";
+  return `${health}；可以直接接管，连接检查只用于排障。`;
 }
 
 function taskStateLabel(state) {

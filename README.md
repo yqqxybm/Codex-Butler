@@ -27,11 +27,11 @@ http://127.0.0.1:4177
 网页里的推荐流程：
 
 ```text
-输入目标 -> 交给管家推进 -> 按主控台的一个按钮继续
+添加或选择 session -> 接管并自动推进 -> 等完成或提交选择
 ```
 
-日常只看主控台。它只会告诉你三类状态：正在推进、卡住了、已完成。
-如果卡住，优先点主控台里的 `重新跑这一步并继续`。排障记录、会话和日志只在需要时展开。
+日常只看主控台。它只会告诉你三类状态：自动推进中、需要你选择、已完成。
+如果需要选择，直接在主控台写一句决策再继续；排障记录和日志只在失败时展开。
 
 如果你要把正在对话的这个 Codex 会话作为管家，先运行：
 
@@ -44,7 +44,8 @@ npm run butler -- add-current-butler-session --label "Current Codex Butler"
 
 ## 怎么判断 session 有用
 
-session 出现在列表里只代表“已登记”，不代表 Butler 真能控制它。
+session 出现在列表里只代表“已登记”。主路径是 `codex exec resume <session>`：
+管家会恢复选中的 Codex session，连续发送推进 turn，直到完成、阻塞或需要你选择。
 
 必须检查成功才算可用：
 
@@ -53,7 +54,8 @@ npm run butler -- probe-sessions
 npm run butler -- probe-session <session-id-or-thread-id>
 ```
 
-如果返回 `thread not found`，这个 session 当前不可达，不能当成可调度会话使用。
+如果 app-server probe 返回 `thread not found`，说明它不能走 app-server worker 复用；
+但只要 `codex exec resume <session>` 能恢复，仍可走网页里的“接管并自动推进”。
 
 ## 常用命令
 
@@ -62,6 +64,9 @@ npm run launchd -- status
 npm run butler -- sessions
 npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- probe-sessions
+npm run butler -- follow-session <session-id-or-thread-id> "继续推进直到完成"
+npm run butler -- advance-session-run <run-id>
+npm run butler -- resume-session-run <run-id> "我的选择是..."
 npm run butler -- plan-goal "你的目标"
 npm run butler -- replan-goal <goal-id>
 npm run butler -- retry-task <task-id>
@@ -85,6 +90,7 @@ npm run butler -- promote-task <task-id>
 
 - 本地 Web 管家会话工作台。
 - macOS `launchd` 长期后台服务。
+- Session 追踪：选择一个 Codex session 后，管家用 `codex exec resume` 自动推进。
 - 目标规划：自然语言目标生成任务链。
 - 一键推进：按任务依赖自动选择下一步，支持推进到阻塞或完成。
 - 阻塞诊断：主控台显示用户动作，不暴露底层协议错误；卡住时可一键重跑并继续。

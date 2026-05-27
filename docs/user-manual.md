@@ -1,10 +1,10 @@
 # Codex Butler 使用手册
 
-Codex Butler 是一个本地管家会话工作台。正常使用时，你不用理解任务链、会话、验证或排障细节。
+Codex Butler 是一个本地管家会话工作台。正常使用时，你不用理解任务链、验证或排障细节。
 只做三步：
 
 ```text
-打开网页 -> 输入目标 -> 点主控台给出的按钮
+打开网页 -> 选择 session -> 接管并自动推进
 ```
 
 网页地址：
@@ -22,31 +22,35 @@ http://127.0.0.1:4177
 
 旧会话、日志和排障记录都不用先看。
 
-## 2. 交给管家目标
+## 2. 选择一个 session
 
-在“你想让管家完成什么”里写一句目标，例如：
+在“选择 Session”里选一个已有 Codex session。
+
+如果列表里没有，就粘贴 session/thread id，点 `添加 session`。
+
+可以在“跟踪目标”里补一句目标，例如：
 
 ```text
-把项目手册改成用户能直接照着操作的版本
+继续推进这个项目，直到完成或需要我做选择
 ```
 
-然后点 `交给管家推进`。
+然后在目标 session 上点 `接管并自动推进`。
 
 ## 3. 只看主控台
 
-目标生成后，只看“管家现在在做什么”。页面会给你一个主按钮。
+接管后，只看“管家正在跟踪什么”。页面会给你一个主按钮。
 
 你只会遇到几种情况：
 
-- `继续推进`：点它，管家继续往下做。
-- `刷新状态`：说明管家正在等结果，点它或等页面自动刷新。
-- `重新跑这一步并继续`：说明某一步没交付合格结果，点它重新跑。
-- `查看最新状态`：说明目标已经完成；继续工作要输入新目标。
+- `继续自动推进`：管家继续恢复这个 session 并推进。
+- `提交选择并继续`：说明它真的需要你做选择；写一句决策再点。
+- `重试推进`：说明本轮执行失败，可以重新跑。
+- `已达成目标`：说明这个 session 已经完成。
 
 不要先展开排障信息。只有连续重跑仍失败时，再看“排障信息”。
 
-注意：当前这个 Codex 聊天窗口只是管家控制台。网页里的推进动作会创建或调度执行会话，
-不会把执行过程消息推回当前聊天窗口；网页状态变了才代表 Butler 有动作。
+注意：session 接管使用 `codex exec resume <session>`。如果这个 session 能被 Codex CLI
+恢复，管家就能推进它；如果恢复失败，主控台会停在阻塞状态并显示原因。
 
 ## 4. 排障时再看
 
@@ -81,6 +85,9 @@ http://127.0.0.1:4177
 npm run launchd -- status
 npm run butler -- add-current-butler-session --label "Current Codex Butler"
 npm run butler -- probe-sessions
+npm run butler -- follow-session <session-id-or-thread-id> "继续推进直到完成"
+npm run butler -- advance-session-run <run-id>
+npm run butler -- resume-session-run <run-id> "我的选择是..."
 npm run butler -- plan-goal "你的目标"
 npm run butler -- replan-goal <goal-id>
 npm run butler -- retry-task <task-id>
@@ -96,7 +103,6 @@ npm run butler -- dashboard
 
 ## 当前限制
 
-- Butler 只能控制当前 app-server transport 能找到的 session。
-- 如果检查返回 `thread not found`，说明这个 id 当前不可达。
-- `current-session / attached` 只代表当前 Codex 会话已作为管家控制台附着；网页推进不会让当前聊天窗口自动冒出执行消息。
-- `交给管家推进` 会真实运行执行会话、验证命令和提升 gate；不要在未准备好的项目里随便启动推进。
+- app-server 检查返回 `thread not found` 只说明不能走 app-server worker 复用；session 接管主路径是 `codex exec resume`。
+- `current-session / attached` 代表当前 Codex 会话已作为管家控制台附着；接管它本身可能和当前聊天窗口并行，不建议作为默认目标。
+- `接管并自动推进` 会真实恢复并推进选中的 Codex session；不要在未准备好的 session 上随便启动。

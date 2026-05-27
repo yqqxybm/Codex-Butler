@@ -190,6 +190,40 @@ async function main(argv) {
     return 0;
   }
 
+  if (command === "follow-session") {
+    const [sessionIdOrThreadId, ...objectiveParts] = args;
+    if (!sessionIdOrThreadId) throw new Error("usage: codex-butler follow-session <session-id-or-thread-id> [objective] [--max-turns <n>]");
+    const objective = parseTextBeforeFlag(objectiveParts, "--max-turns");
+    console.log(JSON.stringify(await createDefaultService().startSessionRun({
+      sessionIdOrThreadId,
+      objective,
+      maxTurns: parseMaxTurns(args)
+    }), null, 2));
+    return 0;
+  }
+
+  if (command === "advance-session-run") {
+    const [runId] = args;
+    if (!runId) throw new Error("usage: codex-butler advance-session-run <run-id> [--max-turns <n>]");
+    console.log(JSON.stringify(await createDefaultService().advanceSessionRun({
+      runId,
+      maxTurns: parseMaxTurns(args)
+    }), null, 2));
+    return 0;
+  }
+
+  if (command === "resume-session-run") {
+    const [runId, ...noteParts] = args;
+    const note = parseTextBeforeFlag(noteParts, "--max-turns");
+    if (!runId || !note) throw new Error("usage: codex-butler resume-session-run <run-id> <decision-note> [--max-turns <n>]");
+    console.log(JSON.stringify(await createDefaultService().resumeSessionRun({
+      runId,
+      note,
+      maxTurns: parseMaxTurns(args)
+    }), null, 2));
+    return 0;
+  }
+
   if (command === "status") {
     console.log(JSON.stringify(await createDefaultService().status(), null, 2));
     return 0;
@@ -342,6 +376,15 @@ Commands:
   probe-sessions
     Probe every registered session and record reachability.
 
+  follow-session <session-id-or-thread-id> [objective] [--max-turns <n>]
+    Start a Butler session run: resume the selected Codex session and auto-advance it until done, blocked, or user choice.
+
+  advance-session-run <run-id> [--max-turns <n>]
+    Continue an active Butler session run.
+
+  resume-session-run <run-id> <decision-note> [--max-turns <n>]
+    Provide the user's decision and continue a paused session run.
+
   status
     Print goals, tasks, and control-plane data location.
 
@@ -377,6 +420,21 @@ function parseMaxSteps(argv) {
     throw new Error("--max-steps must be a positive integer");
   }
   return value;
+}
+
+function parseMaxTurns(argv) {
+  const index = argv.indexOf("--max-turns");
+  if (index === -1) return 3;
+  const value = Number(argv[index + 1]);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error("--max-turns must be a positive integer");
+  }
+  return value;
+}
+
+function parseTextBeforeFlag(argv, flag) {
+  const index = argv.indexOf(flag);
+  return (index === -1 ? argv : argv.slice(0, index)).join(" ");
 }
 
 function parseLaunchdArgs(argv) {

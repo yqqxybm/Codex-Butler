@@ -18,8 +18,9 @@
         </div>
         <nav class="rail-nav" aria-label="页面区域">
           <a href="#overview" class="active">开始</a>
-          <a href="#new-goal">新目标</a>
-          <a href="#goals">状态</a>
+          <a href="#sessions">会话</a>
+          <a href="#session-runs">追踪</a>
+          <a href="#new-goal">目标</a>
           <a href="#summary">排障</a>
         </nav>
         <div class="daemon-tile" id="daemonTile">
@@ -32,7 +33,7 @@
         <section class="topbar" id="overview">
           <div>
             <p class="eyebrow">一键管家</p>
-            <h2>输入目标，点一次推进。之后只看管家告诉你的下一步。</h2>
+            <h2>选择 session，交给管家推进。</h2>
           </div>
           <div class="topbar-actions">
             <button class="button secondary" id="refreshButton" type="button">刷新</button>
@@ -41,27 +42,38 @@
           </div>
         </section>
 
-        <section class="panel current-goal-panel" id="goals">
+        <section class="panel current-goal-panel" id="session-runs">
           <div class="panel-header">
             <div>
               <p class="eyebrow">主控台</p>
-              <h3>管家现在在做什么</h3>
+              <h3>管家正在跟踪什么</h3>
             </div>
           </div>
-          <div class="list" id="goalsList"></div>
+          <div class="list" id="sessionRunsList"></div>
         </section>
+
+        <details class="panel disclosure-panel" id="goals">
+          <summary class="panel-header">
+            <div>
+              <p class="eyebrow">传统目标</p>
+              <h3>目标任务链</h3>
+            </div>
+            <span class="summary-hint">需要时再看</span>
+          </summary>
+          <div class="list" id="goalsList"></div>
+        </details>
 
         <section class="hero-panel" id="new-goal" aria-label="开始使用">
           <form class="planner-form primary-flow" id="plannerForm">
             <div>
-              <p class="eyebrow">新目标</p>
-              <label for="objectiveInput">你想让管家完成什么</label>
+              <p class="eyebrow">跟踪目标</p>
+              <label for="objectiveInput">给选中的 session 一个目标，可不填</label>
             </div>
             <div class="planner-row">
-              <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：把项目手册改成用户能直接照着操作的版本" required>
-              <button class="button primary" type="submit" data-plan-mode="run">交给管家推进</button>
+              <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：继续推进当前项目，直到完成或需要我做选择">
+              <button class="button primary" type="submit" data-plan-mode="run">按目标新建任务链</button>
             </div>
-            <p class="helper-text" id="formHelp">正常只需要这一步。管家会自己拆分、推进、检查，并在需要你判断时停下。</p>
+            <p class="helper-text" id="formHelp">主路径是下面选择 session 后点“接管并自动推进”。这里保留给从零创建任务链。</p>
           </form>
           <div class="readiness-card">
             <div>
@@ -106,23 +118,21 @@
         </details>
 
         <div class="content-grid">
-
-          <details class="panel disclosure-panel" id="sessions">
-            <summary class="panel-header">
+          <section class="panel" id="sessions">
+            <div class="panel-header">
               <div>
-                <p class="eyebrow">高级选项</p>
-                <h3>会话复用</h3>
+                <p class="eyebrow">选择 Session</p>
+                <h3>把哪个 session 交给管家</h3>
               </div>
-              <span class="summary-hint">默认不用管</span>
-            </summary>
+            </div>
             <form class="compact-form" id="sessionForm">
               <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="粘贴现有 Codex session/thread id" required>
               <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
-              <button class="button secondary on-light" type="submit">添加管家会话</button>
+              <button class="button secondary on-light" type="submit">添加 session</button>
             </form>
-            <p class="helper-text" id="sessionHelp">这里管理可被管家复用的现有 Codex 会话。检查失败不影响管家创建新执行会话。</p>
+            <p class="helper-text" id="sessionHelp">选中一个 session 后点“接管并自动推进”。管家会用 Codex resume 持续推进它，直到完成或需要你选择。</p>
             <div class="list" id="sessionsList"></div>
-          </details>
+          </section>
 
           <details class="panel task-panel disclosure-panel" id="tasks">
             <summary class="panel-header">

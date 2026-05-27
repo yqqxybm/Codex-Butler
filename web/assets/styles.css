@@ -135,6 +135,7 @@ h2 {
   max-width: 780px;
   color: var(--color-text-inverse);
   font-size: var(--text-3xl);
+  overflow-wrap: anywhere;
 }
 
 h3 {
@@ -294,6 +295,7 @@ textarea:focus-visible {
 .planner-band,
 .panel,
 .metric-panel {
+  min-width: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -484,6 +486,7 @@ textarea {
   padding: var(--space-5);
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
 .goal-item,
@@ -886,6 +889,7 @@ textarea {
 
   .workspace {
     padding: var(--space-4);
+    overflow-x: hidden;
   }
 
   .topbar,
@@ -913,7 +917,8 @@ textarea {
 
 @media (max-width: 620px) {
   h2 {
-    font-size: var(--text-2xl);
+    font-size: var(--text-xl);
+    max-width: 100%;
   }
 
   .metric-grid {
@@ -960,10 +965,6 @@ textarea {
     padding: var(--space-3);
   }
 
-  .current-goal-panel {
-    order: -1;
-  }
-
   .planner-row,
   .topbar-actions,
   .row-actions,
@@ -974,8 +975,11 @@ textarea {
   }
 
   .button,
-  .mini-button {
+  .mini-button,
+  input,
+  textarea {
     width: 100%;
+    min-width: 0;
   }
 
   .primary-actions .mini-button {
