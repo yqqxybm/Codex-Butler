@@ -18,7 +18,7 @@
         </div>
         <nav class="rail-nav" aria-label="页面区域">
           <a href="#overview" class="active">开始</a>
-          <a href="#session-runs">追踪</a>
+          <a href="#session-runs">托管</a>
           <a href="#sessions">会话</a>
           <a href="#new-goal">目标</a>
           <a href="#summary">排障</a>
@@ -33,7 +33,7 @@
         <section class="topbar" id="overview">
           <div>
             <p class="eyebrow">一键管家</p>
-            <h2>选择 session，交给管家推进。</h2>
+            <h2>选择工作 session，启动管家托管。</h2>
           </div>
           <div class="topbar-actions">
             <button class="button secondary" id="refreshButton" type="button">刷新</button>
@@ -53,16 +53,16 @@
             <div>
               <p class="eyebrow">当前选择</p>
               <strong id="selectedSessionTitle">未选择 session</strong>
-              <p id="selectedSessionText">添加或选择一个工作 session 后，管家才能接管。</p>
+              <p id="selectedSessionText">添加或选择一个可托管的工作 session 后，管家才能启动。</p>
             </div>
-            <button class="button primary" id="autopilotSelectedButton" type="button" disabled>接管选中的 session</button>
+            <button class="button primary" id="autopilotSelectedButton" type="button" disabled>启动管家托管</button>
           </div>
           <form class="compact-form" id="sessionForm">
             <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="粘贴现有 Codex session/thread id" required>
             <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
             <button class="button secondary on-light" type="submit">添加 session</button>
           </form>
-          <p class="helper-text" id="sessionHelp">优先选“推荐”的工作 session。当前管家控制台和重复 id 会明确标出，避免误选。</p>
+          <p class="helper-text" id="sessionHelp">优先选“推荐”的工作 session。当前控制台、管家会话和重复 thread 会禁用，避免自接管。</p>
           <div class="list" id="sessionsList"></div>
         </section>
 
@@ -70,7 +70,7 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">主控台</p>
-              <h3>管家正在跟踪什么</h3>
+              <h3>管家托管状态</h3>
             </div>
           </div>
           <div class="list" id="sessionRunsList"></div>
@@ -90,14 +90,14 @@
         <section class="hero-panel" id="new-goal" aria-label="开始使用">
           <form class="planner-form primary-flow" id="plannerForm">
             <div>
-              <p class="eyebrow">跟踪目标</p>
+              <p class="eyebrow">托管目标</p>
               <label for="objectiveInput">给选中的 session 一个目标，可不填</label>
             </div>
             <div class="planner-row">
               <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：继续推进当前项目，直到完成或需要我做选择">
               <button class="button primary" type="submit" data-plan-mode="run">按目标新建任务链</button>
             </div>
-            <p class="helper-text" id="formHelp">主路径是下面确认推荐 session 后点“接管选中的 session”。这里保留给从零创建任务链。</p>
+            <p class="helper-text" id="formHelp">主路径是上面确认推荐 session 后点“启动管家托管”。这里保留给从零创建任务链。</p>
           </form>
           <div class="readiness-card">
             <div>

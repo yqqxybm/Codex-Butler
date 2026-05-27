@@ -371,6 +371,8 @@ export class ButlerService {
     const state = await this.state.load();
     const session = resolveSessionTarget(state, target);
     if (!session) throw new Error(`Unknown session: ${target}`);
+    const invalidReason = sessionRunTargetInvalidReason(state, session);
+    if (invalidReason) throw new Error(invalidReason);
     const now = new Date().toISOString();
     const run = {
       kind: "session-run",
@@ -404,6 +406,34 @@ export class ButlerService {
     const stepLimit = Math.max(1, Math.min(Number(maxTurns) || 1, 20));
     let state = await this.state.load();
     let run = requiredSessionRun(state, normalizedRunId);
+    const targetSession = resolveSessionRunTarget(state, run);
+    const invalidReason = sessionRunTargetInvalidReason(state, targetSession);
+    if (invalidReason) {
+      run = {
+        ...run,
+        state: "blocked",
+        blockedReason: invalidReason,
+        updatedAt: new Date().toISOString(),
+        nextCheckAt: null
+      };
+      state.sessionRuns[run.id] = run;
+      await this.state.save(state);
+      await this.ledger.append("session_run.blocked", {
+        runId: run.id,
+        targetThreadId: run.targetThreadId,
+        reason: invalidReason
+      });
+      return {
+        ok: false,
+        run,
+        actions: [{
+          action: "blocked",
+          ok: false,
+          reason: invalidReason
+        }],
+        progress: describeSessionRunProgress(run, state)
+      };
+    }
     const noteText = optionalText(note);
     if (noteText) {
       run = {
@@ -1049,16 +1079,17 @@ export class ButlerService {
   async dashboard() {
     const status = await this.status();
     const events = await this.readLedger();
+    const state = statusToState(status);
     return {
       dashboard: renderDashboard(status, events),
       status,
       goalProgress: Object.fromEntries(status.goals.map((goal) => [
         goal.id,
-        describeGoalProgress(statusToState(status), goal.id)
+        describeGoalProgress(state, goal.id)
       ])),
       sessionRunProgress: Object.fromEntries(status.sessionRuns.map((run) => [
         run.id,
-        describeSessionRunProgress(run)
+        describeSessionRunProgress(run, state)
       ])),
       recentEvents: events.slice(-8)
     };
@@ -1097,6 +1128,12 @@ function requiredSessionRun(state, runId) {
   const run = state.sessionRuns[runId];
   if (!run) throw new Error(`Unknown session run: ${runId}`);
   return run;
+}
+
+function resolveSessionRunTarget(state, run) {
+  return state.sessions[run.targetSessionId]
+    ?? Object.values(state.sessions).find((session) => session.threadId === run.targetThreadId && session.role === "worker-session")
+    ?? null;
 }
 
 function assertPrerequisitesMet(state, task) {
@@ -1246,8 +1283,19 @@ function taskIssueDetails(task) {
   return details;
 }
 
-function describeSessionRunProgress(run) {
+function describeSessionRunProgress(run, state = null) {
   const lastTurn = run.turns?.at?.(-1) ?? null;
+  const targetSession = state ? resolveSessionRunTarget(state, run) : null;
+  const invalidReason = state ? sessionRunTargetInvalidReason(state, targetSession) : null;
+  if (invalidReason && run.state === "active") {
+    return {
+      status: "invalid_target",
+      message: invalidReason,
+      needsUser: true,
+      lastSummary: lastTurn?.summary ?? null,
+      details: [invalidReason]
+    };
+  }
   if (run.state === "done") {
     return {
       status: "complete",
@@ -1275,9 +1323,19 @@ function describeSessionRunProgress(run) {
       details: lastTurn?.risks ?? []
     };
   }
+  if (run.state === "active" && (run.turns?.length ?? 0) === 0) {
+    return {
+      status: "pending_first_turn",
+      message: "已创建托管记录，但还没有产生第一轮执行证据；不能视为已接管。",
+      needsUser: false,
+      lastSummary: null,
+      nextCheckAt: run.nextCheckAt ?? null,
+      details: []
+    };
+  }
   return {
     status: "active",
-    message: "管家正在持续推进这个 session。",
+    message: `已产生 ${run.turns?.length ?? 0} 轮推进证据，后台会继续推进这个 session。`,
     needsUser: false,
     lastSummary: lastTurn?.summary ?? null,
     nextCheckAt: run.nextCheckAt ?? null,
@@ -1356,7 +1414,9 @@ function formatDuration(ms) {
 function statusToState(status) {
   return {
     goals: Object.fromEntries((status.goals ?? []).map((goal) => [goal.id, goal])),
-    tasks: Object.fromEntries((status.tasks ?? []).map((task) => [task.id, task]))
+    tasks: Object.fromEntries((status.tasks ?? []).map((task) => [task.id, task])),
+    sessions: Object.fromEntries((status.sessions ?? []).map((session) => [session.id, session])),
+    sessionRuns: Object.fromEntries((status.sessionRuns ?? []).map((run) => [run.id, run]))
   };
 }
 
@@ -1532,6 +1592,28 @@ function resolveSessionTarget(state, target) {
     if (currentButler) return currentButler;
   }
   return matches.find((item) => item.role === "butler-controller") ?? matches[0];
+}
+
+function sessionRunTargetInvalidReason(state, session) {
+  if (!session) return "找不到被托管的工作 session。";
+  if (session.source === "current-session" || session.health?.status === "attached") {
+    return "当前 Codex 控制台不能托管它自己。请选择另一个工作 session。";
+  }
+  if (session.role !== "worker-session") {
+    return "只有普通工作 session 可以被托管；请选择工作 session，不要选择管家会话。";
+  }
+  const currentControllers = Object.values(state.sessions).filter((candidate) =>
+    candidate.role === "butler-controller"
+    && (candidate.source === "current-session" || candidate.health?.status === "attached")
+  );
+  if (currentControllers.some((controller) => controller.threadId === session.threadId)) {
+    return "这个 session 和当前 Butler 控制台是同一个 thread。请选择另一个工作 session。";
+  }
+  const sameThreadSessions = Object.values(state.sessions).filter((candidate) => candidate.threadId === session.threadId);
+  if (sameThreadSessions.length > 1) {
+    return "这个 session 有重复登记项。先清理重复项，再启动托管。";
+  }
+  return null;
 }
 
 function isCurrentAttachedSession(session) {

@@ -43,7 +43,7 @@ elements.plannerForm.addEventListener("submit", async (event) => {
   if (!objective) return;
   const mode = event.submitter?.dataset?.planMode ?? "run";
   const path = mode === "plan" ? "/api/goals/plan" : "/api/goals/plan-and-run";
-  await runAction(mode === "plan" ? "计划已生成" : "管家已接管目标，并推进到当前边界", () => api(path, {
+  await runAction(mode === "plan" ? "计划已生成" : "管家已接收目标，并推进到当前边界", () => api(path, {
     method: "POST",
     body: JSON.stringify({ objective, maxSteps: mode === "plan" ? 1 : 20 })
   }), {
@@ -165,6 +165,11 @@ elements.sessionsList.addEventListener("click", async (event) => {
 
   const card = event.target.closest("[data-session-card]");
   if (!card) return;
+  const option = sessionOptionForId(card.dataset.sessionId);
+  if (!option?.pickable) {
+    showToast(option?.reason ?? "这个 session 不能作为托管目标。", true, 7000);
+    return;
+  }
   state.selectedSessionId = card.dataset.sessionId;
   render(state.dashboard);
 });
@@ -174,6 +179,11 @@ elements.sessionsList.addEventListener("keydown", (event) => {
   if (event.target.closest("button, summary")) return;
   const card = event.target.closest("[data-session-card]");
   if (!card) return;
+  const option = sessionOptionForId(card.dataset.sessionId);
+  if (!option?.pickable) {
+    showToast(option?.reason ?? "这个 session 不能作为托管目标。", true, 7000);
+    return;
+  }
   event.preventDefault();
   state.selectedSessionId = card.dataset.sessionId;
   render(state.dashboard);
@@ -266,11 +276,11 @@ async function startSelectedSessionRun(button) {
     return;
   }
   const objective = elements.objectiveInput.value.trim();
-  await runAction("管家已开始跟踪选中的 session", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
+  await runAction("已创建托管记录，等待第一轮执行证据", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
     body: JSON.stringify({ objective: objective || null, maxTurns: 3 })
   }), {
     button,
-    pendingMessage: "管家正在接管选中的 session，会连续推进到完成、阻塞或需要你选择。"
+    pendingMessage: "正在启动托管。系统会先验证目标不是当前控制台，再产生第一轮推进证据。"
   });
   await refresh();
 }
@@ -294,13 +304,14 @@ function render(data) {
   const tasks = data.status.tasks ?? [];
   const sessions = data.status.sessions ?? [];
   const sessionRuns = data.status.sessionRuns ?? [];
+  const sessionRunProgress = data.sessionRunProgress ?? {};
   const events = data.recentEvents ?? [];
   const activeGoals = goals.filter((goal) => !["done", "failed"].includes(goal.state));
-  const activeSessionRuns = sessionRuns.filter((run) => run.state === "active");
+  const activeSessionRuns = sessionRuns.filter((run) => run.state === "active" && sessionRunProgress[run.id]?.status !== "invalid_target");
   const queuedTasks = tasks.filter((task) => task.state === "queued");
   const blocked = [
     ...goals.filter((goal) => goal.state === "blocked"),
-    ...sessionRuns.filter((run) => ["needs_user", "blocked"].includes(run.state)),
+    ...sessionRuns.filter((run) => ["needs_user", "blocked"].includes(run.state) || sessionRunProgress[run.id]?.status === "invalid_target"),
     ...tasks.filter((task) => ["blocked", "rework", "failed"].includes(task.state))
   ];
   const reusableSessions = sessions.filter((session) => session.health?.status === "reachable");
@@ -308,7 +319,7 @@ function render(data) {
   const unreachableSessions = sessions.filter((session) => session.health?.status === "unreachable");
 
   elements.goalCount.textContent = goals.length;
-  elements.activeGoalCount.textContent = `${activeSessionRuns.length} 个 session 追踪中，${activeGoals.length} 个任务链进行中`;
+  elements.activeGoalCount.textContent = `${activeSessionRuns.length} 个 session 托管中，${activeGoals.length} 个任务链进行中`;
   elements.taskCount.textContent = tasks.length;
   elements.queuedTaskCount.textContent = `${queuedTasks.length} 步等待推进`;
   elements.blockedCount.textContent = blocked.length;
@@ -316,7 +327,7 @@ function render(data) {
   elements.butlerSessionCount.textContent = `${reusableSessions.length} 个诊断可达，${attachedSessions.length} 个当前会话，${unreachableSessions.length} 个诊断不可达`;
   renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
-  renderSessionRuns(sessionRuns, data.sessionRunProgress ?? {});
+  renderSessionRuns(sessionRuns, sessionRunProgress);
   renderGoals(goals, data.goalProgress ?? {}, tasks, sessions);
   renderSessions(sessions);
   renderTasks(tasks);
@@ -336,12 +347,12 @@ function renderDaemon(daemon) {
 function renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, daemon) {
   if (daemon?.status === "running") {
     elements.readinessTitle.textContent = "可以推进";
-    elements.readinessText.textContent = "后台已就绪。选择一个 session 后，管家会用 resume 持续推进。";
+    elements.readinessText.textContent = "后台已就绪。选择一个可托管的工作 session 后，系统会等待真实推进证据。";
     return;
   }
   if (sessions.length === 0) {
     elements.readinessTitle.textContent = "后台未运行";
-    elements.readinessText.textContent = "先点“启动后台”，再添加要接管的 session。";
+    elements.readinessText.textContent = "先点“启动后台”，再添加要托管的 session。";
     return;
   }
   if (reusableSessions.length > 0 || attachedSessions.length > 0) {
@@ -349,7 +360,7 @@ function renderReadiness(sessions, reusableSessions, attachedSessions, unreachab
     if (attachedSessions.length > 0 && reusableSessions.length > 0) {
       elements.readinessText.textContent = "已有会话诊断可达，当前会话已附着；后台仍需启动。";
     } else if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
-      elements.readinessText.textContent = "先启动后台。已有会话可以尝试接管，连接检查只用于诊断。";
+      elements.readinessText.textContent = "先启动后台。已有会话可以尝试托管，连接检查只用于诊断。";
     } else if (attachedSessions.length > 0) {
       elements.readinessText.textContent = "当前 Codex 会话已附着，但后台仍需启动。";
     } else {
@@ -359,36 +370,38 @@ function renderReadiness(sessions, reusableSessions, attachedSessions, unreachab
   }
   elements.readinessTitle.textContent = "后台未运行";
   elements.readinessText.textContent = unreachableSessions.length > 0
-    ? "先启动后台。已登记 session 可尝试接管，失败原因会显示在主控台。"
+    ? "先启动后台。已登记 session 可尝试托管，失败原因会显示在主控台。"
     : "先启动后台；已有会话可稍后再检查。";
 }
 
 function renderSessionRuns(runs, runProgress) {
   if (runs.length === 0) {
-    elements.sessionRunsList.innerHTML = `<div class="empty-state">还没有管家追踪。下面确认推荐 session，点“接管选中的 session”。</div>`;
+    elements.sessionRunsList.innerHTML = `<div class="empty-state">还没有托管记录。上面确认推荐工作 session，点“启动管家托管”。</div>`;
     return;
   }
   elements.sessionRunsList.innerHTML = runs.map((run) => {
     const progress = runProgress[run.id] ?? sessionRunProgressFallback(run);
     const lastTurn = run.turns?.at?.(-1) ?? null;
+    const tone = sessionRunTone(run, progress);
     return `
-      <article class="goal-item ${sessionRunTone(run)}">
-        <p class="eyebrow">${escapeHtml(sessionRunStateLabel(run.state))}</p>
+      <article class="goal-item ${tone}">
+        <p class="eyebrow">${escapeHtml(sessionRunStateLabel(run, progress))}</p>
         <p class="item-title">${escapeHtml(run.targetLabel ?? run.targetThreadId)}</p>
-        <div class="simple-status ${sessionRunTone(run)}">
+        <div class="simple-status ${tone}">
           <div>
-            <span class="diagnosis-label">管家追踪</span>
-            <strong>${escapeHtml(sessionRunPhaseTitle(run))}</strong>
+            <span class="diagnosis-label">托管状态</span>
+            <strong>${escapeHtml(sessionRunPhaseTitle(run, progress))}</strong>
             <p>${escapeHtml(progress.message)}</p>
           </div>
-          <p class="progress-summary">${escapeHtml(lastTurn?.summary ?? "等待第一轮推进结果。")}</p>
+          <p class="progress-summary">${escapeHtml(lastTurn?.summary ?? sessionRunEvidenceText(run, progress))}</p>
         </div>
         <p class="next-action">${escapeHtml(sessionRunNextAction(run, progress))}</p>
         ${renderSessionRunActions(run, progress)}
         <details class="technical-details">
-          <summary>追踪细节</summary>
+          <summary>托管细节</summary>
           <div class="item-meta">
             <span class="pill ${classForState(run.state)}">${escapeHtml(run.state)}</span>
+            <span class="pill ${classForState(progress.status)}">${escapeHtml(sessionRunProgressLabel(progress.status))}</span>
             <span class="pill">${escapeHtml(shortId(run.id))}</span>
             <span class="pill">${run.turns?.length ?? 0} 轮</span>
           </div>
@@ -401,6 +414,9 @@ function renderSessionRuns(runs, runProgress) {
 }
 
 function renderSessionRunActions(run, progress) {
+  if (progress.status === "invalid_target") {
+    return `<div class="row-actions primary-actions"><span class="inline-note">请重新选择一个独立工作 session。</span></div>`;
+  }
   if (run.state === "done") {
     return `<div class="row-actions primary-actions"><span class="inline-note">已达成目标。</span></div>`;
   }
@@ -415,13 +431,15 @@ function renderSessionRunActions(run, progress) {
   if (run.state === "blocked") {
     return `
       <div class="row-actions primary-actions">
-        <button class="mini-button primary-mini" data-run-action="advance" data-run-id="${escapeHtml(run.id)}">重试推进</button>
+        ${progress.status === "invalid_target"
+          ? `<span class="inline-note">请重新选择一个独立工作 session。</span>`
+          : `<button class="mini-button primary-mini" data-run-action="advance" data-run-id="${escapeHtml(run.id)}">重试推进</button>`}
       </div>
     `;
   }
   return `
     <div class="row-actions primary-actions">
-      <button class="mini-button primary-mini" data-run-action="advance" data-run-id="${escapeHtml(run.id)}">继续自动推进</button>
+      <button class="mini-button primary-mini" data-run-action="advance" data-run-id="${escapeHtml(run.id)}">${(run.turns?.length ?? 0) === 0 ? "开始第一轮推进" : "继续自动推进"}</button>
     </div>
   `;
 }
@@ -513,28 +531,28 @@ function renderGoalPipeline(tasks) {
 
 function renderSessions(sessions) {
   if (sessions.length === 0) {
-    elements.sessionsList.innerHTML = `<div class="empty-state">还没有 session。粘贴一个 Codex session/thread id，添加后确认选择并接管。</div>`;
+    elements.sessionsList.innerHTML = `<div class="empty-state">还没有 session。粘贴一个 Codex session/thread id，添加后确认选择并启动托管。</div>`;
     renderSelectedSession(null, null);
     return;
   }
   const options = buildSessionOptions(sessions);
-  const selected = options.find((option) => option.session.id === state.selectedSessionId)
+  const selected = options.find((option) => option.session.id === state.selectedSessionId && option.pickable)
     ?? options.find((option) => option.pickable)
-    ?? options[0];
+    ?? null;
   state.selectedSessionId = selected?.session.id ?? null;
   renderSelectedSession(selected?.session ?? null, selected ?? null);
   elements.sessionsList.innerHTML = options.map((option) => {
     const session = option.session;
     const selectedClass = session.id === state.selectedSessionId ? " selected" : "";
     return `
-      <article class="session-card${selectedClass}" data-session-card data-session-id="${escapeHtml(session.id)}" tabindex="0" aria-label="选择 ${escapeHtml(option.title)}">
+      <article class="session-card${selectedClass}${option.pickable ? "" : " disabled"}" data-session-card data-session-id="${escapeHtml(session.id)}" data-pickable="${option.pickable ? "true" : "false"}" tabindex="${option.pickable ? "0" : "-1"}" aria-disabled="${option.pickable ? "false" : "true"}" aria-label="${escapeHtml(option.pickable ? `选择 ${option.title}` : `${option.title} 不可托管`)}">
         <div class="session-card-main">
           <div>
             <p class="session-recommendation ${option.tone}">${escapeHtml(option.badge)}</p>
             <p class="item-title">${escapeHtml(option.title)}</p>
             <p class="session-id-line">${escapeHtml(compactThreadId(session.threadId))}</p>
           </div>
-          <span class="session-select-mark">${session.id === state.selectedSessionId ? "已选" : "选择"}</span>
+          <span class="session-select-mark">${session.id === state.selectedSessionId ? "已选" : option.pickable ? "选择" : "不可选"}</span>
         </div>
         <p class="item-subtitle">${escapeHtml(option.reason)}</p>
         ${renderSessionDetailSummary(session)}
@@ -559,13 +577,15 @@ function renderSessions(sessions) {
 function renderSelectedSession(session, option) {
   if (!session || !option) {
     elements.selectedSessionTitle.textContent = "未选择 session";
-    elements.selectedSessionText.textContent = "添加或选择一个工作 session 后，管家才能接管。";
+    elements.selectedSessionText.textContent = "添加或选择一个可托管的工作 session 后，管家才能启动。";
     elements.autopilotSelectedButton.disabled = true;
+    elements.autopilotSelectedButton.textContent = "启动管家托管";
     return;
   }
   elements.selectedSessionTitle.textContent = option.title;
   elements.selectedSessionText.textContent = `${option.badge}：${option.detailLine}`;
-  elements.autopilotSelectedButton.disabled = false;
+  elements.autopilotSelectedButton.disabled = !option.pickable;
+  elements.autopilotSelectedButton.textContent = option.pickable ? "启动管家托管" : "不能托管这个 session";
 }
 
 function buildSessionOptions(sessions) {
@@ -573,10 +593,14 @@ function buildSessionOptions(sessions) {
     counts.set(session.threadId, (counts.get(session.threadId) ?? 0) + 1);
     return counts;
   }, new Map());
+  const currentThreadIds = new Set(sessions
+    .filter((session) => session.source === "current-session" || session.health?.status === "attached")
+    .map((session) => session.threadId));
   return sessions
     .map((session, index) => {
       const duplicate = (threadCounts.get(session.threadId) ?? 0) > 1;
       const current = session.source === "current-session" || session.health?.status === "attached";
+      const sameAsCurrent = currentThreadIds.has(session.threadId);
       const controller = session.role === "butler-controller";
       const imported = /^Imported worker (\d+)$/i.exec(session.label ?? "");
       const title = session.details?.threadName
@@ -590,11 +614,12 @@ function buildSessionOptions(sessions) {
         duplicate,
         current,
         controller,
+        sameAsCurrent,
         pickable: true,
         order: index + 20,
         tone: "good",
         badge: "推荐",
-        pickLabel: "适合接管",
+        pickLabel: "适合托管",
         reason: activity,
         detailLine: `${activity}${session.details?.updatedAt ? ` · ${formatDateTime(session.details.updatedAt)}` : ""}`
       };
@@ -603,10 +628,23 @@ function buildSessionOptions(sessions) {
           ...base,
           order: index + 80,
           tone: "bad",
-          badge: "不推荐",
+          badge: "不能托管",
           pickLabel: "当前控制台",
-          reason: "这是你当前正在操作的管家控制台；接管它会和当前对话并行。",
-          detailLine: `${activity} · 当前控制台`
+          pickable: false,
+          reason: "这是你当前正在操作的 Codex 控制台，不能作为被托管目标。",
+          detailLine: `${activity} · 当前控制台不能自接管`
+        };
+      }
+      if (sameAsCurrent) {
+        return {
+          ...base,
+          order: index + 75,
+          tone: "bad",
+          badge: "不能托管",
+          pickLabel: "同一 thread",
+          pickable: false,
+          reason: "这个登记项和当前管家控制台是同一个 thread，不能伪装成另一个工作 session。",
+          detailLine: `${activity} · 与当前控制台同一 thread`
         };
       }
       if (controller) {
@@ -614,8 +652,9 @@ function buildSessionOptions(sessions) {
           ...base,
           order: index + 60,
           tone: "warn",
-          badge: "谨慎",
+          badge: "不能托管",
           pickLabel: "管家会话",
+          pickable: false,
           reason: "这是控制会话，不是普通工作 session；优先选择上面的工作 session。",
           detailLine: `${activity} · 管家会话`
         };
@@ -625,15 +664,21 @@ function buildSessionOptions(sessions) {
           ...base,
           order: index + 40,
           tone: "warn",
-          badge: "需确认",
+          badge: "不能托管",
           pickLabel: "重复 id",
-          reason: "这个 thread id 有重复登记项；确认它确实是你要跟踪的工作 session 后再接管。",
+          pickable: false,
+          reason: "这个 thread id 有重复登记项，系统无法确定哪个是真正工作对象；先清理重复项再托管。",
           detailLine: `${activity} · 重复 id`
         };
       }
       return base;
     })
     .sort((left, right) => left.order - right.order);
+}
+
+function sessionOptionForId(sessionId) {
+  const sessions = state.dashboard?.status?.sessions ?? [];
+  return buildSessionOptions(sessions).find((option) => option.session.id === sessionId) ?? null;
 }
 
 function renderSessionDetailSummary(session) {
@@ -743,32 +788,56 @@ function goalTone(progress) {
   return "warn";
 }
 
-function sessionRunTone(run) {
+function sessionRunTone(run, progress = null) {
+  if (progress?.status === "invalid_target") return "bad";
   if (run.state === "done") return "good";
   if (["needs_user", "blocked", "failed"].includes(run.state)) return "bad";
+  if ((run.turns?.length ?? 0) > 0) return "good";
   return "warn";
 }
 
-function sessionRunPhaseTitle(run) {
+function sessionRunPhaseTitle(run, progress = null) {
+  if (progress?.status === "invalid_target") return "目标不能托管";
+  if (progress?.status === "pending_first_turn") return "等待第一轮执行证据";
   if (run.state === "done") return "已完成";
   if (run.state === "needs_user") return "需要你选择";
   if (run.state === "blocked") return "推进受阻";
-  return "自动推进中";
+  return "正在推进";
 }
 
 function sessionRunNextAction(run, progress) {
   if (run.state === "done") return "下一步：查看结果，或选择另一个 session。";
+  if (progress.status === "invalid_target") return "下一步：选择一个和当前控制台不同的工作 session。";
   if (run.state === "needs_user") return "下一步：写下你的选择，管家会继续推进这个 session。";
-  if (run.state === "blocked") return "下一步：重试推进；如果仍失败，再看追踪细节。";
+  if (run.state === "blocked") return "下一步：重试推进；如果仍失败，再看托管细节。";
+  if (progress.status === "pending_first_turn") return "下一步：等待后台触发第一轮，或手动点“开始第一轮推进”。";
   if (progress.nextCheckAt) return `下一步：管家会自动继续，也可以手动点“继续自动推进”。`;
   return "下一步：等待下一轮推进，或手动继续。";
 }
 
 function sessionRunProgressFallback(run) {
-  if (run.state === "done") return { message: "这个 session 已经推进到完成。" };
-  if (run.state === "needs_user") return { message: run.pendingUserDecision || "需要你做一个选择后才能继续。" };
-  if (run.state === "blocked") return { message: run.blockedReason || "管家无法继续推进这个 session。" };
-  return { message: "管家正在持续推进这个 session。", nextCheckAt: run.nextCheckAt ?? null };
+  if (run.state === "done") return { status: "complete", message: "这个 session 已经推进到完成。" };
+  if (run.state === "needs_user") return { status: "needs_user", message: run.pendingUserDecision || "需要你做一个选择后才能继续。" };
+  if (run.state === "blocked") return { status: "blocked", message: run.blockedReason || "管家无法继续推进这个 session。" };
+  if ((run.turns?.length ?? 0) === 0) {
+    return {
+      status: "pending_first_turn",
+      message: "已创建托管记录，但还没有产生第一轮执行证据；不能视为已接管。",
+      nextCheckAt: run.nextCheckAt ?? null
+    };
+  }
+  return {
+    status: "active",
+    message: `已产生 ${run.turns?.length ?? 0} 轮推进证据，后台会继续推进这个 session。`,
+    nextCheckAt: run.nextCheckAt ?? null
+  };
+}
+
+function sessionRunEvidenceText(run, progress) {
+  if (progress.status === "invalid_target") return "没有有效托管目标。";
+  if (progress.status === "pending_first_turn") return "尚无推进 turn。";
+  if ((run.turns?.length ?? 0) === 0) return "尚无推进 turn。";
+  return `已有 ${run.turns.length} 轮推进证据。`;
 }
 
 function nextActionText(progress) {
@@ -886,8 +955,8 @@ function renderEvents(events) {
 
 function classForState(state) {
   if (["attached", "running", "planned", "validating", "verified", "promoted"].includes(state)) return "good";
-  if (["queued", "stopped", "intake", "review", "active"].includes(state)) return "warn";
-  if (["blocked", "failed", "rework", "stale", "needs_user"].includes(state)) return "bad";
+  if (["queued", "stopped", "intake", "review", "active", "pending_first_turn"].includes(state)) return "warn";
+  if (["blocked", "failed", "rework", "stale", "needs_user", "invalid_target"].includes(state)) return "bad";
   return "neutral";
 }
 
@@ -983,23 +1052,37 @@ function sessionSourceLabel(source) {
   return source;
 }
 
-function sessionRunStateLabel(state) {
+function sessionRunStateLabel(run, progress = null) {
+  if (progress?.status === "invalid_target") return "目标错误";
+  if (progress?.status === "pending_first_turn") return "等待执行证据";
   const labels = {
-    active: "自动追踪中",
+    active: (run.turns?.length ?? 0) > 0 ? "自动推进中" : "等待执行证据",
     needs_user: "等待选择",
     blocked: "已阻塞",
     done: "已完成",
     failed: "失败"
   };
-  return labels[state] ?? state;
+  return labels[run.state] ?? run.state;
+}
+
+function sessionRunProgressLabel(status) {
+  const labels = {
+    pending_first_turn: "无执行证据",
+    invalid_target: "目标无效",
+    active: "已有推进证据",
+    complete: "已完成",
+    needs_user: "等待选择",
+    blocked: "已阻塞"
+  };
+  return labels[status] ?? status ?? "未知状态";
 }
 
 function sessionSummary(session) {
   const health = sessionHealthLabel(session.health?.status);
-  if (session.health?.status === "unreachable") return "连接检查不可达；仍可尝试接管，是否能推进以 Codex resume 结果为准。";
-  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话是管家控制台；可以接管，但建议优先选择其他工作 session。";
-  if (session.health?.status === "reachable") return "连接检查可达；可以接管。";
-  return `${health}；可以直接接管，连接检查只用于排障。`;
+  if (session.health?.status === "unreachable") return "连接检查不可达；可启动托管，但第一轮 resume 失败会直接阻塞。";
+  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话是控制台，不能作为被托管目标。";
+  if (session.health?.status === "reachable") return "连接检查可达；可以启动托管。";
+  return `${health}；可以启动托管，连接检查只用于排障。`;
 }
 
 function taskStateLabel(state) {

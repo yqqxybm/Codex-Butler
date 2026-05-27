@@ -12,14 +12,15 @@ test("web server serves the app shell and status API", async () => {
     const page = await fetchText(`${baseUrl}/`);
     assert.match(page, /Codex Butler/);
     assert.match(page, /一键管家/);
-    assert.match(page, /接管选中的 session/);
+    assert.match(page, /启动管家托管/);
     assert.match(page, /app\.js/);
 
     const app = await fetchText(`${baseUrl}/assets/app.js`);
     assert.match(app, /目标已经完成，没有新的推进动作/);
-    assert.match(app, /是否能推进以 Codex resume 结果为准/);
+    assert.match(app, /第一轮 resume 失败会直接阻塞/);
     assert.match(app, /工作 session/);
     assert.match(app, /sessionRunsList/);
+    assert.match(app, /不能视为已接管/);
 
     const status = await fetchJson(`${baseUrl}/api/status`);
     assert.equal(status.goals.length, 0);

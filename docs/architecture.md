@@ -62,7 +62,7 @@ session 登记为 `butler-controller`，`register-session` 可登记普通 worke
 `add-current-butler-session` 是当前 Codex 会话的专用入口。它读取 `CODEX_THREAD_ID`，
 登记 source 为 `current-session`，并把 health 标记为 `attached`。`attached` 只说明当前
 会话可以作为人工操作中的 Butler controller；它不等同于 `reachable`，也不会被当作远程
-worker dispatch 目标。
+worker dispatch 目标，也不能作为 session run 的被托管目标。
 
 这个 registry 是确定性状态记录，不假装拥有未经验证的自动发现能力。如果 app-server
 后续稳定提供 session enumeration API，可以在这里补 discovery adapter；当前边界是管理
@@ -75,9 +75,10 @@ schema turn；只有 probe 成功的普通 session 才能被当前 transport 视
 
 ### Session Runs
 
-`sessionRuns` 是面向用户的主产品路径。用户选择一个 Codex session 后，Butler 创建
-`session-run-*` 记录，并通过 `codex exec resume <session-id>` 恢复该 session。每一轮
-都会要求目标 session 继续推进当前任务，并返回结构化状态：
+`sessionRuns` 是面向用户的主产品路径。用户选择一个可托管的工作 session 后，Butler 创建
+`session-run-*` 记录，并通过 `codex exec resume <session-id>` 恢复该 session。创建记录
+只表示托管已排队；只有产生 `session_run.turn` 事件或 turn 输出文件，才表示目标 session
+真实推进过。每一轮都会要求目标 session 继续推进当前任务，并返回结构化状态：
 
 - `in_progress`：已经推进，Butler 可继续下一轮；
 - `needs_user`：出现真实分叉，需要用户选择；
@@ -85,8 +86,12 @@ schema turn；只有 probe 成功的普通 session 才能被当前 transport 视
 - `blocked`：恢复 session、执行或验证失败。
 
 这条路径不依赖 app-server thread reachability。app-server probe 仍用于 worker transport
-诊断，但不能再作为“能否接管已有 Desktop session”的唯一判断。`codex-butlerd` 会自动推进
+诊断，但不能再作为“能否托管已有 Desktop session”的唯一判断。`codex-butlerd` 会自动推进
 active session run，一直到完成、阻塞或需要用户决策。
+
+Session run 目标有硬不变量：目标必须是 `worker-session`，不能是 `current-session`，
+不能是 `butler-controller`，不能和当前控制台同 thread，也不能存在重复 registry 条目。
+违反这些条件时，后端拒绝启动或把旧 run 标记为 blocked，前端不能显示为“已接管”。
 
 ### Daemon Management
 

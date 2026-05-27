@@ -676,6 +676,75 @@ test("service follows a selected session until user decision and resumes to done
   assert.equal(dashboard.sessionRunProgress[started.run.id].status, "complete");
 });
 
+test("service refuses to supervise the current attached session or duplicate current thread", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const previousThreadId = process.env.CODEX_THREAD_ID;
+  process.env.CODEX_THREAD_ID = "current-thread";
+  try {
+    const service = new ButlerService({
+      projectRoot: dir,
+      execClientFactory: () => ({
+        async resumeSession() {
+          throw new Error("self-supervision target should be rejected before exec");
+        }
+      })
+    });
+    const current = await service.addCurrentButlerSession({ label: "Current Butler" });
+    const duplicateWorker = await service.registerSession({
+      threadId: "current-thread",
+      role: "worker-session",
+      label: "Duplicate Worker"
+    });
+
+    await assert.rejects(
+      () => service.startSessionRun({ sessionIdOrThreadId: current.id }),
+      /当前 Codex 控制台不能托管它自己/
+    );
+    await assert.rejects(
+      () => service.startSessionRun({ sessionIdOrThreadId: duplicateWorker.id }),
+      /和当前 Butler 控制台是同一个 thread/
+    );
+  } finally {
+    if (previousThreadId === undefined) {
+      delete process.env.CODEX_THREAD_ID;
+    } else {
+      process.env.CODEX_THREAD_ID = previousThreadId;
+    }
+  }
+});
+
+test("dashboard marks an active session run with no turns as pending first execution evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-butler-service-"));
+  const service = new ButlerService({ projectRoot: dir });
+  const session = await service.registerSession({
+    threadId: "target-thread",
+    role: "worker-session",
+    label: "Target Work"
+  });
+  const state = await service.state.load();
+  state.sessionRuns["session-run-pending"] = {
+    kind: "session-run",
+    id: "session-run-pending",
+    targetSessionId: session.id,
+    targetThreadId: session.threadId,
+    targetLabel: session.label,
+    targetSource: session.source,
+    objective: "Continue the target work",
+    state: "active",
+    mode: "codex-exec-resume",
+    createdAt: "2026-05-27T00:00:00.000Z",
+    updatedAt: "2026-05-27T00:00:00.000Z",
+    nextCheckAt: "2026-05-27T00:10:00.000Z",
+    turns: [],
+    notes: []
+  };
+  await service.state.save(state);
+
+  const dashboard = await service.dashboard();
+  assert.equal(dashboard.sessionRunProgress["session-run-pending"].status, "pending_first_turn");
+  assert.match(dashboard.sessionRunProgress["session-run-pending"].message, /没有产生第一轮执行证据/);
+});
+
 function fakeClient(result) {
   return fakeClientSequence([result]);
 }

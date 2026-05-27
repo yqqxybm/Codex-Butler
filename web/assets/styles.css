@@ -407,6 +407,15 @@ textarea:focus-visible {
   box-shadow: inset 0 0 0 2px rgba(34, 117, 111, 0.18);
 }
 
+.session-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.74;
+}
+
+.session-card.disabled:hover {
+  border-color: var(--color-border);
+}
+
 .session-card-main {
   display: flex;
   justify-content: space-between;
