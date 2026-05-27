@@ -537,14 +537,16 @@ function renderSessions(sessions) {
           <span class="session-select-mark">${session.id === state.selectedSessionId ? "已选" : "选择"}</span>
         </div>
         <p class="item-subtitle">${escapeHtml(option.reason)}</p>
+        ${renderSessionDetailSummary(session)}
         <div class="item-meta">
           <span class="pill ${option.tone}">${escapeHtml(option.pickLabel)}</span>
           <span class="pill">${escapeHtml(sessionSourceLabel(session.source))}</span>
           <span class="pill ${classForState(session.health?.status)}">${escapeHtml(sessionHealthLabel(session.health?.status))}</span>
+          ${session.details?.updatedAt ? `<span class="pill">${escapeHtml(formatDateTime(session.details.updatedAt))}</span>` : ""}
         </div>
         <details class="technical-details">
           <summary>技术细节</summary>
-          <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""} · ${escapeHtml(session.role)} · ${escapeHtml(session.source)} · ${escapeHtml(shortId(session.id))}</p>
+          <p class="item-subtitle">${escapeHtml(session.threadId)}${session.details?.transcriptPath ? ` · ${escapeHtml(session.details.transcriptPath)}` : ""}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""} · ${escapeHtml(session.role)} · ${escapeHtml(session.source)} · ${escapeHtml(shortId(session.id))}</p>
         </details>
         <div class="row-actions">
           <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">诊断连接</button>
@@ -562,7 +564,7 @@ function renderSelectedSession(session, option) {
     return;
   }
   elements.selectedSessionTitle.textContent = option.title;
-  elements.selectedSessionText.textContent = `${option.badge}：${option.reason}`;
+  elements.selectedSessionText.textContent = `${option.badge}：${option.detailLine}`;
   elements.autopilotSelectedButton.disabled = false;
 }
 
@@ -577,7 +579,11 @@ function buildSessionOptions(sessions) {
       const current = session.source === "current-session" || session.health?.status === "attached";
       const controller = session.role === "butler-controller";
       const imported = /^Imported worker (\d+)$/i.exec(session.label ?? "");
-      const title = imported ? `工作 session ${imported[1]}` : session.label || `Session ${index + 1}`;
+      const title = session.details?.threadName
+        ?? (imported ? `工作 session ${imported[1]}` : session.label || `Session ${index + 1}`);
+      const activity = session.details?.lastUserMessage
+        ? `最后目标：${session.details.lastUserMessage}`
+        : "还没有读取到最近目标；可展开技术细节看原始 id。";
       const base = {
         session,
         title,
@@ -589,7 +595,8 @@ function buildSessionOptions(sessions) {
         tone: "good",
         badge: "推荐",
         pickLabel: "适合接管",
-        reason: "这是工作 session，适合让管家追踪并自动推进。"
+        reason: activity,
+        detailLine: `${activity}${session.details?.updatedAt ? ` · ${formatDateTime(session.details.updatedAt)}` : ""}`
       };
       if (current) {
         return {
@@ -598,7 +605,8 @@ function buildSessionOptions(sessions) {
           tone: "bad",
           badge: "不推荐",
           pickLabel: "当前控制台",
-          reason: "这是你当前正在操作的管家控制台；接管它会和当前对话并行。"
+          reason: "这是你当前正在操作的管家控制台；接管它会和当前对话并行。",
+          detailLine: `${activity} · 当前控制台`
         };
       }
       if (controller) {
@@ -608,7 +616,8 @@ function buildSessionOptions(sessions) {
           tone: "warn",
           badge: "谨慎",
           pickLabel: "管家会话",
-          reason: "这是控制会话，不是普通工作 session；优先选择上面的工作 session。"
+          reason: "这是控制会话，不是普通工作 session；优先选择上面的工作 session。",
+          detailLine: `${activity} · 管家会话`
         };
       }
       if (duplicate) {
@@ -618,12 +627,37 @@ function buildSessionOptions(sessions) {
           tone: "warn",
           badge: "需确认",
           pickLabel: "重复 id",
-          reason: "这个 thread id 有重复登记项；确认它确实是你要跟踪的工作 session 后再接管。"
+          reason: "这个 thread id 有重复登记项；确认它确实是你要跟踪的工作 session 后再接管。",
+          detailLine: `${activity} · 重复 id`
         };
       }
       return base;
     })
     .sort((left, right) => left.order - right.order);
+}
+
+function renderSessionDetailSummary(session) {
+  const details = session.details ?? {};
+  const items = [{
+    label: "最后目标",
+    value: details.lastUserMessage ?? details.threadName ?? "没有读取到最近用户目标"
+  }, {
+    label: "最近回应",
+    value: details.lastAssistantMessage ?? "没有读取到最近助手回应"
+  }, {
+    label: "目录",
+    value: compactPath(details.cwd ?? session.cwd)
+  }];
+  return `
+    <dl class="session-detail-summary">
+      ${items.map((item) => `
+        <div>
+          <dt>${escapeHtml(item.label)}</dt>
+          <dd>${escapeHtml(item.value)}</dd>
+        </div>
+      `).join("")}
+    </dl>
+  `;
 }
 
 function renderTasks(tasks) {
@@ -866,10 +900,25 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function formatDateTime(value) {
+  if (!value) return "unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function compactThreadId(threadId) {
   const text = String(threadId ?? "");
   if (text.length <= 14) return text;
   return `${text.slice(0, 8)}...${text.slice(-6)}`;
+}
+
+function compactPath(path) {
+  const text = String(path ?? "");
+  if (!text) return "未知目录";
+  const parts = text.split("/").filter(Boolean);
+  if (parts.length <= 3) return text;
+  return `.../${parts.slice(-3).join("/")}`;
 }
 
 function stoppedResultMessage(result) {

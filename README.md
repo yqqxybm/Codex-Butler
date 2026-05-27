@@ -50,6 +50,9 @@ session 出现在列表里只代表“已登记”。网页会把它们整理成
 - `需确认`：重复 id 或边界不清，确认后再接管。
 - `不推荐`：当前管家控制台或控制会话，容易和当前对话并行。
 
+卡片会从 `~/.codex/session_index.jsonl` 和最近 transcript 抽取标题、最后用户目标、
+最近助手回应、目录和更新时间；原始 transcript 不直接铺在页面上。
+
 接管主路径是 `codex exec resume <session>`：管家会恢复选中的 Codex session，
 连续发送推进 turn，直到完成、阻塞或需要你选择。
 

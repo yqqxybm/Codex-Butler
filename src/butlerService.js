@@ -13,6 +13,7 @@ import { applyTranscriptEvidence, extractSkillReadEvidence } from "./evidence.js
 import { renderDashboard } from "./dashboard.js";
 import { readDaemonStatus, startDaemon, stopDaemon } from "./daemon.js";
 import { CodexExecClient } from "./codexExecClient.js";
+import { SessionDetailReader } from "./sessionDetails.js";
 
 export const SESSION_ROLES = Object.freeze([
   "butler-controller",
@@ -49,6 +50,7 @@ export class ButlerService {
       cwd: this.projectRoot,
       dataDir: this.dataDir
     }));
+    this.sessionDetailReader = options.sessionDetailReader ?? new SessionDetailReader(options.sessionDetailOptions);
   }
 
   async submitGoal({ objective }) {
@@ -1029,12 +1031,13 @@ export class ButlerService {
   async status() {
     await this.reconcileStaleTasks();
     const state = await this.state.load();
+    const sessions = await this.sessionDetailReader.enrichSessions(Object.values(state.sessions));
     return {
       projectRoot: this.projectRoot,
       dataDir: this.dataDir,
       goals: Object.values(state.goals),
       tasks: Object.values(state.tasks),
-      sessions: Object.values(state.sessions),
+      sessions,
       sessionRuns: Object.values(state.sessionRuns)
     };
   }

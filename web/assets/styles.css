@@ -455,6 +455,33 @@ textarea:focus-visible {
   font-size: var(--text-xs);
 }
 
+.session-detail-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.session-detail-summary div {
+  display: grid;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.session-detail-summary dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.session-detail-summary dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 label {
   font-size: var(--text-sm);
   font-weight: 800;
