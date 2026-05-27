@@ -27,7 +27,7 @@ http://127.0.0.1:4177
 网页里的推荐流程：
 
 ```text
-添加或选择 session -> 接管并自动推进 -> 等完成或提交选择
+确认推荐 session -> 接管选中的 session -> 等完成或提交选择
 ```
 
 日常只看主控台。它只会告诉你三类状态：自动推进中、需要你选择、已完成。
@@ -44,8 +44,14 @@ npm run butler -- add-current-butler-session --label "Current Codex Butler"
 
 ## 怎么判断 session 有用
 
-session 出现在列表里只代表“已登记”。主路径是 `codex exec resume <session>`：
-管家会恢复选中的 Codex session，连续发送推进 turn，直到完成、阻塞或需要你选择。
+session 出现在列表里只代表“已登记”。网页会把它们整理成推荐卡片：
+
+- `推荐`：普通工作 session，优先接管。
+- `需确认`：重复 id 或边界不清，确认后再接管。
+- `不推荐`：当前管家控制台或控制会话，容易和当前对话并行。
+
+接管主路径是 `codex exec resume <session>`：管家会恢复选中的 Codex session，
+连续发送推进 turn，直到完成、阻塞或需要你选择。
 
 必须检查成功才算可用：
 
@@ -55,7 +61,7 @@ npm run butler -- probe-session <session-id-or-thread-id>
 ```
 
 如果 app-server probe 返回 `thread not found`，说明它不能走 app-server worker 复用；
-但只要 `codex exec resume <session>` 能恢复，仍可走网页里的“接管并自动推进”。
+但只要 `codex exec resume <session>` 能恢复，仍可走网页里的“接管选中的 session”。
 
 ## 常用命令
 

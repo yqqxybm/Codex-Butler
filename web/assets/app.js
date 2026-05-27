@@ -1,6 +1,7 @@
 const state = {
   dashboard: null,
-  busy: false
+  busy: false,
+  selectedSessionId: null
 };
 
 const elements = {
@@ -28,6 +29,9 @@ const elements = {
   goalsList: document.querySelector("#goalsList"),
   sessionRunsList: document.querySelector("#sessionRunsList"),
   sessionsList: document.querySelector("#sessionsList"),
+  selectedSessionTitle: document.querySelector("#selectedSessionTitle"),
+  selectedSessionText: document.querySelector("#selectedSessionText"),
+  autopilotSelectedButton: document.querySelector("#autopilotSelectedButton"),
   taskTable: document.querySelector("#taskTable"),
   eventLog: document.querySelector("#eventLog"),
   toast: document.querySelector("#toast")
@@ -70,6 +74,7 @@ elements.refreshButton.addEventListener("click", () => refresh());
 elements.startDaemonButton.addEventListener("click", () => runAction("后台已启动", () => api("/api/daemon/start")).then(refresh));
 elements.stopDaemonButton.addEventListener("click", () => runAction("后台已停止", () => api("/api/daemon/stop")).then(refresh));
 elements.probeAllButton.addEventListener("click", () => runAction("会话检查完成", () => api("/api/sessions/probe-all")).then(refresh));
+elements.autopilotSelectedButton.addEventListener("click", () => startSelectedSessionRun(elements.autopilotSelectedButton));
 
 elements.goalsList.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-goal-action]");
@@ -149,23 +154,29 @@ elements.taskTable.addEventListener("click", async (event) => {
 });
 
 elements.sessionsList.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-session-action]");
-  if (!button) return;
-  const sessionId = button.dataset.sessionId;
-  const action = button.dataset.sessionAction;
-  if (action === "autopilot") {
-    const objective = elements.objectiveInput.value.trim();
-    await runAction("管家已开始跟踪这个 session", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
-      body: JSON.stringify({ objective: objective || null, maxTurns: 3 })
-    }), {
-      button,
-      pendingMessage: "管家正在接管选中的 session，会连续推进到完成、阻塞或需要你选择。"
-    });
+  const probeButton = event.target.closest("[data-session-action='probe']");
+  if (probeButton) {
+    const sessionId = probeButton.dataset.sessionId;
+    await runAction("会话诊断完成", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`), { button: probeButton });
     await refresh();
     return;
   }
-  await runAction("会话已检查", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/probe`), { button });
-  await refresh();
+  if (event.target.closest("summary")) return;
+
+  const card = event.target.closest("[data-session-card]");
+  if (!card) return;
+  state.selectedSessionId = card.dataset.sessionId;
+  render(state.dashboard);
+});
+
+elements.sessionsList.addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  if (event.target.closest("button, summary")) return;
+  const card = event.target.closest("[data-session-card]");
+  if (!card) return;
+  event.preventDefault();
+  state.selectedSessionId = card.dataset.sessionId;
+  render(state.dashboard);
 });
 
 elements.sessionRunsList.addEventListener("click", async (event) => {
@@ -248,6 +259,22 @@ async function runAction(successMessage, fn, options = {}) {
   }
 }
 
+async function startSelectedSessionRun(button) {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId) {
+    showToast("先选择一个 session。", true, 7000);
+    return;
+  }
+  const objective = elements.objectiveInput.value.trim();
+  await runAction("管家已开始跟踪选中的 session", () => api(`/api/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
+    body: JSON.stringify({ objective: objective || null, maxTurns: 3 })
+  }), {
+    button,
+    pendingMessage: "管家正在接管选中的 session，会连续推进到完成、阻塞或需要你选择。"
+  });
+  await refresh();
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     method: "POST",
@@ -286,7 +313,7 @@ function render(data) {
   elements.queuedTaskCount.textContent = `${queuedTasks.length} 步等待推进`;
   elements.blockedCount.textContent = blocked.length;
   elements.sessionCount.textContent = sessions.length;
-  elements.butlerSessionCount.textContent = `${reusableSessions.length} 个可复用，${attachedSessions.length} 个当前会话，${unreachableSessions.length} 个不可达`;
+  elements.butlerSessionCount.textContent = `${reusableSessions.length} 个诊断可达，${attachedSessions.length} 个当前会话，${unreachableSessions.length} 个诊断不可达`;
   renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
   renderSessionRuns(sessionRuns, data.sessionRunProgress ?? {});
@@ -320,13 +347,13 @@ function renderReadiness(sessions, reusableSessions, attachedSessions, unreachab
   if (reusableSessions.length > 0 || attachedSessions.length > 0) {
     elements.readinessTitle.textContent = "后台未运行";
     if (attachedSessions.length > 0 && reusableSessions.length > 0) {
-      elements.readinessText.textContent = "已有会话可复用，当前会话已附着；后台仍需启动。";
+      elements.readinessText.textContent = "已有会话诊断可达，当前会话已附着；后台仍需启动。";
     } else if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
       elements.readinessText.textContent = "先启动后台。已有会话可以尝试接管，连接检查只用于诊断。";
     } else if (attachedSessions.length > 0) {
       elements.readinessText.textContent = "当前 Codex 会话已附着，但后台仍需启动。";
     } else {
-      elements.readinessText.textContent = "已有会话可复用，但后台仍需启动。";
+      elements.readinessText.textContent = "已有会话诊断可达，但后台仍需启动。";
     }
     return;
   }
@@ -338,7 +365,7 @@ function renderReadiness(sessions, reusableSessions, attachedSessions, unreachab
 
 function renderSessionRuns(runs, runProgress) {
   if (runs.length === 0) {
-    elements.sessionRunsList.innerHTML = `<div class="empty-state">还没有管家追踪。下面选一个 session，点“接管并自动推进”。</div>`;
+    elements.sessionRunsList.innerHTML = `<div class="empty-state">还没有管家追踪。下面确认推荐 session，点“接管选中的 session”。</div>`;
     return;
   }
   elements.sessionRunsList.innerHTML = runs.map((run) => {
@@ -486,27 +513,117 @@ function renderGoalPipeline(tasks) {
 
 function renderSessions(sessions) {
   if (sessions.length === 0) {
-    elements.sessionsList.innerHTML = `<div class="empty-state">还没有 session。粘贴一个 Codex session/thread id，添加后点“接管并自动推进”。</div>`;
+    elements.sessionsList.innerHTML = `<div class="empty-state">还没有 session。粘贴一个 Codex session/thread id，添加后确认选择并接管。</div>`;
+    renderSelectedSession(null, null);
     return;
   }
-  elements.sessionsList.innerHTML = sessions.map((session) => `
-    <article class="goal-item">
-      <div class="item-meta">
-        <span class="pill ${session.role === "butler-controller" ? "good" : ""}">${escapeHtml(sessionRoleLabel(session.role))}</span>
-        <span class="pill ${classForState(session.health?.status)}">${escapeHtml(sessionHealthLabel(session.health?.status))}</span>
-      </div>
-      <p class="item-title">${escapeHtml(session.label)}</p>
-      <p class="item-subtitle">${escapeHtml(sessionSummary(session))}</p>
-      <details class="technical-details">
-        <summary>技术细节</summary>
-        <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""} · ${escapeHtml(session.source)} · ${escapeHtml(shortId(session.id))}</p>
-      </details>
-      <div class="row-actions">
-        <button class="mini-button primary-mini" data-session-action="autopilot" data-session-id="${escapeHtml(session.id)}">接管并自动推进</button>
-        <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">检查可用性</button>
-      </div>
-    </article>
-  `).join("");
+  const options = buildSessionOptions(sessions);
+  const selected = options.find((option) => option.session.id === state.selectedSessionId)
+    ?? options.find((option) => option.pickable)
+    ?? options[0];
+  state.selectedSessionId = selected?.session.id ?? null;
+  renderSelectedSession(selected?.session ?? null, selected ?? null);
+  elements.sessionsList.innerHTML = options.map((option) => {
+    const session = option.session;
+    const selectedClass = session.id === state.selectedSessionId ? " selected" : "";
+    return `
+      <article class="session-card${selectedClass}" data-session-card data-session-id="${escapeHtml(session.id)}" tabindex="0" aria-label="选择 ${escapeHtml(option.title)}">
+        <div class="session-card-main">
+          <div>
+            <p class="session-recommendation ${option.tone}">${escapeHtml(option.badge)}</p>
+            <p class="item-title">${escapeHtml(option.title)}</p>
+            <p class="session-id-line">${escapeHtml(compactThreadId(session.threadId))}</p>
+          </div>
+          <span class="session-select-mark">${session.id === state.selectedSessionId ? "已选" : "选择"}</span>
+        </div>
+        <p class="item-subtitle">${escapeHtml(option.reason)}</p>
+        <div class="item-meta">
+          <span class="pill ${option.tone}">${escapeHtml(option.pickLabel)}</span>
+          <span class="pill">${escapeHtml(sessionSourceLabel(session.source))}</span>
+          <span class="pill ${classForState(session.health?.status)}">${escapeHtml(sessionHealthLabel(session.health?.status))}</span>
+        </div>
+        <details class="technical-details">
+          <summary>技术细节</summary>
+          <p class="item-subtitle">${escapeHtml(session.threadId)}${session.cwd ? ` · ${escapeHtml(session.cwd)}` : ""} · ${escapeHtml(session.role)} · ${escapeHtml(session.source)} · ${escapeHtml(shortId(session.id))}</p>
+        </details>
+        <div class="row-actions">
+          <button class="mini-button" data-session-action="probe" data-session-id="${escapeHtml(session.id)}">诊断连接</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderSelectedSession(session, option) {
+  if (!session || !option) {
+    elements.selectedSessionTitle.textContent = "未选择 session";
+    elements.selectedSessionText.textContent = "添加或选择一个工作 session 后，管家才能接管。";
+    elements.autopilotSelectedButton.disabled = true;
+    return;
+  }
+  elements.selectedSessionTitle.textContent = option.title;
+  elements.selectedSessionText.textContent = `${option.badge}：${option.reason}`;
+  elements.autopilotSelectedButton.disabled = false;
+}
+
+function buildSessionOptions(sessions) {
+  const threadCounts = sessions.reduce((counts, session) => {
+    counts.set(session.threadId, (counts.get(session.threadId) ?? 0) + 1);
+    return counts;
+  }, new Map());
+  return sessions
+    .map((session, index) => {
+      const duplicate = (threadCounts.get(session.threadId) ?? 0) > 1;
+      const current = session.source === "current-session" || session.health?.status === "attached";
+      const controller = session.role === "butler-controller";
+      const imported = /^Imported worker (\d+)$/i.exec(session.label ?? "");
+      const title = imported ? `工作 session ${imported[1]}` : session.label || `Session ${index + 1}`;
+      const base = {
+        session,
+        title,
+        duplicate,
+        current,
+        controller,
+        pickable: true,
+        order: index + 20,
+        tone: "good",
+        badge: "推荐",
+        pickLabel: "适合接管",
+        reason: "这是工作 session，适合让管家追踪并自动推进。"
+      };
+      if (current) {
+        return {
+          ...base,
+          order: index + 80,
+          tone: "bad",
+          badge: "不推荐",
+          pickLabel: "当前控制台",
+          reason: "这是你当前正在操作的管家控制台；接管它会和当前对话并行。"
+        };
+      }
+      if (controller) {
+        return {
+          ...base,
+          order: index + 60,
+          tone: "warn",
+          badge: "谨慎",
+          pickLabel: "管家会话",
+          reason: "这是控制会话，不是普通工作 session；优先选择上面的工作 session。"
+        };
+      }
+      if (duplicate) {
+        return {
+          ...base,
+          order: index + 40,
+          tone: "warn",
+          badge: "需确认",
+          pickLabel: "重复 id",
+          reason: "这个 thread id 有重复登记项；确认它确实是你要跟踪的工作 session 后再接管。"
+        };
+      }
+      return base;
+    })
+    .sort((left, right) => left.order - right.order);
 }
 
 function renderTasks(tasks) {
@@ -749,6 +866,12 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function compactThreadId(threadId) {
+  const text = String(threadId ?? "");
+  if (text.length <= 14) return text;
+  return `${text.slice(0, 8)}...${text.slice(-6)}`;
+}
+
 function stoppedResultMessage(result) {
   if (result?.run?.state === "blocked") {
     return result.run.blockedReason ?? "管家无法继续推进这个 session。";
@@ -798,10 +921,17 @@ function sessionRoleLabel(role) {
 }
 
 function sessionHealthLabel(status) {
-  if (status === "reachable") return "可复用";
+  if (status === "reachable") return "诊断可达";
   if (status === "attached") return "当前会话";
-  if (status === "unreachable") return "不可达";
+  if (status === "unreachable") return "诊断不可达";
   return "未检查";
+}
+
+function sessionSourceLabel(source) {
+  if (source === "current-session") return "当前会话";
+  if (source === "existing-local") return "已登记";
+  if (source === "app-server") return "系统创建";
+  return source;
 }
 
 function sessionRunStateLabel(state) {
@@ -819,7 +949,7 @@ function sessionSummary(session) {
   const health = sessionHealthLabel(session.health?.status);
   if (session.health?.status === "unreachable") return "连接检查不可达；仍可尝试接管，是否能推进以 Codex resume 结果为准。";
   if (session.health?.status === "attached") return "当前正在对话的 Codex 会话是管家控制台；可以接管，但建议优先选择其他工作 session。";
-  if (session.health?.status === "reachable") return "连接检查可达；可以接管并自动推进。";
+  if (session.health?.status === "reachable") return "连接检查可达；可以接管。";
   return `${health}；可以直接接管，连接检查只用于排障。`;
 }
 

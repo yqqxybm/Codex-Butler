@@ -350,6 +350,111 @@ textarea:focus-visible {
   margin-bottom: var(--space-3);
 }
 
+#sessions {
+  grid-column: 1 / -1;
+}
+
+#sessions .list {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.session-picker-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  margin-bottom: var(--space-4);
+  border: 1px solid rgba(34, 117, 111, 0.24);
+  border-left: 4px solid var(--color-teal);
+  background: #17211f;
+  color: var(--color-text-inverse);
+  padding: var(--space-5);
+}
+
+.session-picker-summary strong {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+}
+
+.session-picker-summary p {
+  margin: 0;
+  color: rgba(247, 240, 226, 0.74);
+}
+
+.session-picker-summary .eyebrow {
+  color: rgba(247, 240, 226, 0.62);
+}
+
+.session-card {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.session-card:hover,
+.session-card:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.session-card.selected {
+  border-color: var(--color-teal);
+  box-shadow: inset 0 0 0 2px rgba(34, 117, 111, 0.18);
+}
+
+.session-card-main {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.session-recommendation {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.session-recommendation.good {
+  color: var(--color-success);
+}
+
+.session-recommendation.warn {
+  color: var(--color-warning);
+}
+
+.session-recommendation.bad {
+  color: var(--color-error);
+}
+
+.session-select-mark {
+  flex: 0 0 auto;
+  min-height: 28px;
+  border: 1px solid var(--color-border);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.session-card.selected .session-select-mark {
+  border-color: rgba(34, 117, 111, 0.34);
+  background: rgba(34, 117, 111, 0.1);
+  color: var(--color-teal);
+}
+
+.session-id-line {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 label {
   font-size: var(--text-sm);
   font-weight: 800;
@@ -894,7 +999,8 @@ textarea {
 
   .topbar,
   .hero-panel,
-  .content-grid {
+  .content-grid,
+  .session-picker-summary {
     grid-template-columns: 1fr;
     display: grid;
   }
@@ -922,6 +1028,10 @@ textarea {
   }
 
   .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #sessions .list {
     grid-template-columns: 1fr;
   }
 

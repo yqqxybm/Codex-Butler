@@ -18,8 +18,8 @@
         </div>
         <nav class="rail-nav" aria-label="页面区域">
           <a href="#overview" class="active">开始</a>
-          <a href="#sessions">会话</a>
           <a href="#session-runs">追踪</a>
+          <a href="#sessions">会话</a>
           <a href="#new-goal">目标</a>
           <a href="#summary">排障</a>
         </nav>
@@ -40,6 +40,30 @@
             <button class="button secondary" id="startDaemonButton" type="button">启动后台</button>
             <button class="button danger" id="stopDaemonButton" type="button" hidden>停止</button>
           </div>
+        </section>
+
+        <section class="panel" id="sessions">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">选择 Session</p>
+              <h3>选一个工作 session</h3>
+            </div>
+          </div>
+          <div class="session-picker-summary">
+            <div>
+              <p class="eyebrow">当前选择</p>
+              <strong id="selectedSessionTitle">未选择 session</strong>
+              <p id="selectedSessionText">添加或选择一个工作 session 后，管家才能接管。</p>
+            </div>
+            <button class="button primary" id="autopilotSelectedButton" type="button" disabled>接管选中的 session</button>
+          </div>
+          <form class="compact-form" id="sessionForm">
+            <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="粘贴现有 Codex session/thread id" required>
+            <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
+            <button class="button secondary on-light" type="submit">添加 session</button>
+          </form>
+          <p class="helper-text" id="sessionHelp">优先选“推荐”的工作 session。当前管家控制台和重复 id 会明确标出，避免误选。</p>
+          <div class="list" id="sessionsList"></div>
         </section>
 
         <section class="panel current-goal-panel" id="session-runs">
@@ -73,7 +97,7 @@
               <input id="objectiveInput" name="objective" autocomplete="off" placeholder="例如：继续推进当前项目，直到完成或需要我做选择">
               <button class="button primary" type="submit" data-plan-mode="run">按目标新建任务链</button>
             </div>
-            <p class="helper-text" id="formHelp">主路径是下面选择 session 后点“接管并自动推进”。这里保留给从零创建任务链。</p>
+            <p class="helper-text" id="formHelp">主路径是下面确认推荐 session 后点“接管选中的 session”。这里保留给从零创建任务链。</p>
           </form>
           <div class="readiness-card">
             <div>
@@ -118,22 +142,6 @@
         </details>
 
         <div class="content-grid">
-          <section class="panel" id="sessions">
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">选择 Session</p>
-                <h3>把哪个 session 交给管家</h3>
-              </div>
-            </div>
-            <form class="compact-form" id="sessionForm">
-              <input id="sessionThreadInput" name="threadId" autocomplete="off" placeholder="粘贴现有 Codex session/thread id" required>
-              <input id="sessionLabelInput" name="label" autocomplete="off" placeholder="名称，可不填">
-              <button class="button secondary on-light" type="submit">添加 session</button>
-            </form>
-            <p class="helper-text" id="sessionHelp">选中一个 session 后点“接管并自动推进”。管家会用 Codex resume 持续推进它，直到完成或需要你选择。</p>
-            <div class="list" id="sessionsList"></div>
-          </section>
-
           <details class="panel task-panel disclosure-panel" id="tasks">
             <summary class="panel-header">
               <div>
