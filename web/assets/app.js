@@ -181,7 +181,12 @@ async function runAction(successMessage, fn, options = {}) {
   if (options.pendingMessage) showToast(options.pendingMessage, false, 30000);
   try {
     const result = await fn();
+    const completionMessage = completedResultMessage(result);
     const stoppedMessage = stoppedResultMessage(result);
+    if (completionMessage) {
+      showToast(completionMessage, false, 7000);
+      return result;
+    }
     if (stoppedMessage) {
       showToast(stoppedMessage, true, 9000);
     } else {
@@ -224,7 +229,7 @@ function render(data) {
     ...goals.filter((goal) => goal.state === "blocked"),
     ...tasks.filter((task) => ["blocked", "rework", "failed"].includes(task.state))
   ];
-  const usableSessions = sessions.filter((session) => ["reachable", "attached"].includes(session.health?.status));
+  const reusableSessions = sessions.filter((session) => session.health?.status === "reachable");
   const attachedSessions = sessions.filter((session) => session.health?.status === "attached");
   const unreachableSessions = sessions.filter((session) => session.health?.status === "unreachable");
 
@@ -234,8 +239,8 @@ function render(data) {
   elements.queuedTaskCount.textContent = `${queuedTasks.length} 步等待推进`;
   elements.blockedCount.textContent = blocked.length;
   elements.sessionCount.textContent = sessions.length;
-  elements.butlerSessionCount.textContent = `${usableSessions.length} 个可复用，${unreachableSessions.length} 个不可达`;
-  renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, data.daemon);
+  elements.butlerSessionCount.textContent = `${reusableSessions.length} 个可复用，${attachedSessions.length} 个当前会话，${unreachableSessions.length} 个不可达`;
+  renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, data.daemon);
   renderDaemon(data.daemon);
   renderGoals(goals, data.goalProgress ?? {}, tasks, sessions);
   renderSessions(sessions);
@@ -253,7 +258,7 @@ function renderDaemon(daemon) {
   `;
 }
 
-function renderReadiness(sessions, usableSessions, attachedSessions, unreachableSessions, daemon) {
+function renderReadiness(sessions, reusableSessions, attachedSessions, unreachableSessions, daemon) {
   if (daemon?.status === "running") {
     elements.readinessTitle.textContent = "可以推进";
     elements.readinessText.textContent = "后台已就绪。管家可以创建新的执行会话；旧会话只影响复用。";
@@ -264,9 +269,11 @@ function renderReadiness(sessions, usableSessions, attachedSessions, unreachable
     elements.readinessText.textContent = "先点“启动后台”，再输入目标。";
     return;
   }
-  if (usableSessions.length > 0) {
+  if (reusableSessions.length > 0 || attachedSessions.length > 0) {
     elements.readinessTitle.textContent = "后台未运行";
-    if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
+    if (attachedSessions.length > 0 && reusableSessions.length > 0) {
+      elements.readinessText.textContent = "已有会话可复用，当前会话已附着；后台仍需启动。";
+    } else if (attachedSessions.length > 0 && unreachableSessions.length > 0) {
       elements.readinessText.textContent = "先启动后台。已有会话状态可在高级选项里查看。";
     } else if (attachedSessions.length > 0) {
       elements.readinessText.textContent = "当前 Codex 会话已附着，但后台仍需启动。";
@@ -289,6 +296,9 @@ function renderGoals(goals, goalProgress, tasks, sessions) {
   elements.goalsList.innerHTML = goals.map((goal) => {
     const progress = goalProgress[goal.id] ?? null;
     const goalTasks = tasks.filter((task) => task.goalId === goal.id);
+    const detailAction = progress?.status === "complete"
+      ? `<span class="inline-note">目标已完成，没有可推进步骤。</span>`
+      : `<button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">只推进一步</button>`;
     return `
     <article class="goal-item ${goalTone(progress)}">
       <p class="eyebrow">${goal.state === "done" ? "已完成" : "当前目标"}</p>
@@ -305,7 +315,7 @@ function renderGoals(goals, goalProgress, tasks, sessions) {
         </div>
         ${renderGoalPipeline(goalTasks)}
         <div class="row-actions detail-actions">
-          <button class="mini-button" data-goal-action="advance" data-goal-id="${escapeHtml(goal.id)}" data-max-steps="1">只推进一步</button>
+          ${detailAction}
         </div>
       </details>
     </article>
@@ -472,7 +482,7 @@ function goalTone(progress) {
 
 function nextActionText(progress) {
   if (!progress) return "下一步：输入目标后，管家自动建立执行链。";
-  if (progress.status === "complete") return "下一步：查看结果或开始一个新目标。";
+  if (progress.status === "complete") return "下一步：这个目标已经完成；继续请输入新目标。";
   if (isBlockedProgress(progress)) return "下一步：先确认排障原因里的问题；补充目标后再继续。";
   if (progress.status === "stalled") return "推荐操作：重新跑这一步并继续。";
   if (progress.status === "waiting") return "下一步：等待前置结果完成后继续。";
@@ -523,7 +533,7 @@ function butlerPhase(progress) {
   if (progress.status === "complete") {
     return {
       title: "已完成",
-      detail: "管家已经跑完这个目标。"
+      detail: "管家已经跑完这个目标。再次刷新只会查看状态，不会启动新的执行会话。"
     };
   }
   if (progress.status === "stalled") {
@@ -601,7 +611,8 @@ function formatTime(value) {
 
 function stoppedResultMessage(result) {
   const target = result?.advanced ?? result;
-  if (!target || target.ok !== false) return null;
+  if (!target) return null;
+  if (target.ok !== false) return null;
   if (target.actions?.some((action) => action.action === "auto-retry")) {
     return "管家已经自动重跑过一次，但这一步还是没交付合格结果。建议点“重新跑这一步并继续”。";
   }
@@ -613,6 +624,15 @@ function stoppedResultMessage(result) {
   }
   return target.actions?.at?.(-1)?.reason
     ?? "管家停住了：现在没有可执行的下一步。";
+}
+
+function completedResultMessage(result) {
+  const target = result?.advanced ?? result;
+  if (!target) return null;
+  if (target.progress?.status === "complete" || target.actions?.some((action) => action.action === "done")) {
+    return "目标已经完成，没有新的推进动作。当前会话只是管家控制台，不会收到新的执行消息；要继续请输入新目标。";
+  }
+  return null;
 }
 
 function daemonStatusLabel(status) {
@@ -638,7 +658,7 @@ function sessionHealthLabel(status) {
 function sessionSummary(session) {
   const health = sessionHealthLabel(session.health?.status);
   if (session.health?.status === "unreachable") return "这个旧会话现在不可复用，不影响新目标推进。";
-  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话已接入 Butler。";
+  if (session.health?.status === "attached") return "当前正在对话的 Codex 会话是管家控制台；网页推进不会把执行消息发回这个聊天窗口。";
   if (session.health?.status === "reachable") return "这个已有会话当前可复用。";
   return `${health}；需要时可以检查可用性。`;
 }

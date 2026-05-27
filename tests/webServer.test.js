@@ -14,6 +14,10 @@ test("web server serves the app shell and status API", async () => {
     assert.match(page, /一键管家/);
     assert.match(page, /app\.js/);
 
+    const app = await fetchText(`${baseUrl}/assets/app.js`);
+    assert.match(app, /目标已经完成，没有新的推进动作/);
+    assert.match(app, /网页推进不会把执行消息发回这个聊天窗口/);
+
     const status = await fetchJson(`${baseUrl}/api/status`);
     assert.equal(status.goals.length, 0);
     assert.equal(status.tasks.length, 0);

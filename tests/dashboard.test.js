@@ -22,7 +22,15 @@ test("dashboard renders goals, task states, and recent events as text", () => {
       threadId: "thread-butler",
       label: "Existing Butler",
       role: "butler-controller",
-      source: "existing-local"
+      source: "existing-local",
+      health: { status: "reachable" }
+    }, {
+      id: "session-2",
+      threadId: "thread-current",
+      label: "Current Butler",
+      role: "butler-controller",
+      source: "current-session",
+      health: { status: "attached" }
     }]
   }, [{
     type: "task.created",
@@ -33,7 +41,7 @@ test("dashboard renders goals, task states, and recent events as text", () => {
   assert.match(text, /Codex Butler Dashboard/);
   assert.match(text, /Goals: 1 total, 1 active, 0 done, 0 blocked/);
   assert.match(text, /queued: 1/);
-  assert.match(text, /Sessions: 1 managed, 1 butler/);
+  assert.match(text, /Sessions: 2 managed, 2 butler, 1 reachable butler, 1 attached current-session/);
   assert.match(text, /Existing Butler -> thread-butler/);
   assert.match(text, /task\.created/);
 });

@@ -6,7 +6,8 @@ export function renderDashboard(status, events = []) {
   const doneGoals = goals.filter((goal) => goal.state === "done");
   const blockedGoals = goals.filter((goal) => goal.state === "blocked");
   const butlerSessions = sessions.filter((session) => session.role === "butler-controller");
-  const usableButlers = butlerSessions.filter((session) => ["reachable", "attached"].includes(session.health?.status));
+  const reachableButlers = butlerSessions.filter((session) => session.health?.status === "reachable");
+  const attachedButlers = butlerSessions.filter((session) => session.health?.status === "attached");
   const taskCounts = countBy(tasks, "state");
   const lines = [
     "Codex Butler Dashboard",
@@ -15,7 +16,7 @@ export function renderDashboard(status, events = []) {
     "",
     `Goals: ${goals.length} total, ${activeGoals.length} active, ${doneGoals.length} done, ${blockedGoals.length} blocked`,
     `Tasks: ${tasks.length} total${formatTaskCounts(taskCounts)}`,
-    `Sessions: ${sessions.length} managed, ${butlerSessions.length} butler, ${usableButlers.length} usable butler`,
+    `Sessions: ${sessions.length} managed, ${butlerSessions.length} butler, ${reachableButlers.length} reachable butler, ${attachedButlers.length} attached current-session`,
     ""
   ];
 
